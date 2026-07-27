@@ -1,0 +1,6 @@
+{
+  "name": "Beitak Marketplace",
+  "description": "Multi-vendor furniture and home marketplace platform with admin dashboard and local/Supabase integrations",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
