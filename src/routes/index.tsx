@@ -325,11 +325,7 @@ function Home() {
   return (
     <PageShell>
       <div
-        style={{
-          backgroundColor: themeConf.homepageBg,
-          color: themeConf.homepageText,
-          minHeight: "100vh",
-        }}
+        style={{ minHeight: "100vh" }}
       >
         <LiveCustomSectionsContainer />
         {sectionsOrder.map((secId) => renderSection(secId))}

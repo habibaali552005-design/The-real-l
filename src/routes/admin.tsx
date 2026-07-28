@@ -1239,9 +1239,23 @@ function SettingsAdmin() {
     <form onSubmit={save} className="px-4 space-y-4 pb-12">
       {/* Visual Identity Section */}
       <div className="bg-card border border-brand-dark/5 p-4 rounded-2xl space-y-3">
-        <h3 className="text-xs font-bold text-brand-primary flex items-center gap-1.5 border-b border-brand-dark/5 pb-2 mb-2">
-          🎨 التحكم الكامل بالهوية والألوان والخطوط (Super Admin)
-        </h3>
+        <div className="flex items-center justify-between border-b border-brand-dark/5 pb-2 mb-2">
+          <h3 className="text-xs font-bold text-brand-primary flex items-center gap-1.5">
+            🎨 التحكم الكامل بالهوية والألوان والخطوط (Super Admin)
+          </h3>
+          <button
+            type="button"
+            onClick={() => {
+              const defaults = MarketplaceStore.resetSiteThemeSettings();
+              setThemeConf(defaults);
+              window.dispatchEvent(new Event("beitak-theme-updated"));
+              toast.success("تم إعادة ضبط الألوان للباليتة الأصلية الغنية بنجاح ✓");
+            }}
+            className="text-[10px] bg-brand-bg border border-brand-dark/10 px-2.5 py-1 rounded-lg hover:border-brand-primary text-brand-dark font-bold transition cursor-pointer"
+          >
+            🔄 إعادة ضبط الألوان
+          </button>
+        </div>
 
         <div className="grid grid-cols-2 gap-3">
           <SetField label="قالب الموقع والمظهر">
@@ -1275,13 +1289,16 @@ function SettingsAdmin() {
               <input
                 type="color"
                 value={
-                  themeConf.brandPrimary.startsWith("oklch") ? "#8C6A5D" : themeConf.brandPrimary
+                  themeConf.brandPrimary.startsWith("oklch") ? "#5C4033" : themeConf.brandPrimary
                 }
-                onChange={(e) => updTheme("brandPrimary", e.target.value)}
+                onChange={(e) => {
+                  updTheme("brandPrimary", e.target.value);
+                  updTheme("homepagePrimary", e.target.value);
+                }}
                 className="w-10 h-10 rounded-lg cursor-pointer border-none p-0"
               />
               <span className="text-[10px] font-mono text-muted-foreground">
-                {themeConf.brandPrimary}
+                {themeConf.homepagePrimary || themeConf.brandPrimary}
               </span>
             </div>
           </SetField>
@@ -1291,13 +1308,16 @@ function SettingsAdmin() {
               <input
                 type="color"
                 value={
-                  themeConf.brandAccent.startsWith("oklch") ? "#C5A059" : themeConf.brandAccent
+                  themeConf.brandAccent.startsWith("oklch") ? "#D2B48C" : themeConf.brandAccent
                 }
-                onChange={(e) => updTheme("brandAccent", e.target.value)}
+                onChange={(e) => {
+                  updTheme("brandAccent", e.target.value);
+                  updTheme("homepageAccent", e.target.value);
+                }}
                 className="w-10 h-10 rounded-lg cursor-pointer border-none p-0"
               />
               <span className="text-[10px] font-mono text-muted-foreground">
-                {themeConf.brandAccent}
+                {themeConf.homepageAccent || themeConf.brandAccent}
               </span>
             </div>
           </SetField>

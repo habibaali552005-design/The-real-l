@@ -94,10 +94,10 @@ const DEFAULT_THEME_SETTINGS: WebsiteThemeSettings = {
     "latest",
     "cta",
   ],
-  homepageBg: "#FDFBF7",
-  homepageText: "#2D241E",
-  homepagePrimary: "#8C6A5D",
-  homepageAccent: "#C5A059",
+  homepageBg: "#F8F5EE",
+  homepageText: "#1C1613",
+  homepagePrimary: "#5C4033",
+  homepageAccent: "#D2B48C",
   homepageCard: "#FFFFFF",
   heroTitle: "كل اللي بيتك محتاجه في مكان واحد",
   heroSubtitle: "أثاث، أجهزة كهربائية، سيارات، وعقارات — بيع وشراء بأمان مع بيتك.",
@@ -608,7 +608,45 @@ export class MarketplaceStore {
     return DEFAULT_THEME_SETTINGS;
   }
   static getSiteThemeSettings(): WebsiteThemeSettings {
-    return getStored<WebsiteThemeSettings>("site_theme_settings", DEFAULT_THEME_SETTINGS);
+    const stored = getStored<WebsiteThemeSettings>("site_theme_settings", DEFAULT_THEME_SETTINGS);
+
+    // ── Color migration: upgrade old washed-out defaults to richer values ──
+    // If the stored values still carry the old light palette (e.g. from a
+    // previous color-picker interaction), silently migrate them in place so
+    // every returning user gets the correct rich brand colours.
+    let dirty = false;
+    const migrated = { ...stored };
+
+    const OLD_PRIMARY = "#8C6A5D";
+    const OLD_ACCENT  = "#C5A059";
+    const OLD_BG      = "#FDFBF7";
+    const OLD_TEXT    = "#2D241E";
+
+    if (migrated.homepagePrimary === OLD_PRIMARY) {
+      migrated.homepagePrimary = DEFAULT_THEME_SETTINGS.homepagePrimary;
+      dirty = true;
+    }
+    if (migrated.homepageAccent === OLD_ACCENT) {
+      migrated.homepageAccent = DEFAULT_THEME_SETTINGS.homepageAccent;
+      dirty = true;
+    }
+    if (migrated.homepageBg === OLD_BG) {
+      migrated.homepageBg = DEFAULT_THEME_SETTINGS.homepageBg;
+      dirty = true;
+    }
+    if (migrated.homepageText === OLD_TEXT) {
+      migrated.homepageText = DEFAULT_THEME_SETTINGS.homepageText;
+      dirty = true;
+    }
+
+    if (dirty) {
+      setStored("site_theme_settings", migrated);
+    }
+    return migrated;
+  }
+  static resetSiteThemeSettings() {
+    setStored("site_theme_settings", DEFAULT_THEME_SETTINGS);
+    return DEFAULT_THEME_SETTINGS;
   }
   static saveSiteThemeSettings(settings: WebsiteThemeSettings) {
     setStored("site_theme_settings", settings);
