@@ -238,29 +238,10 @@ export function SellerDashboard({
     const updatedSeller: Seller = {
       ...seller,
       planId,
-      aiCredits: seller.aiCredits + selectedPlan.aiCredits,
       planExpiresAt: new Date(Date.now() + 86400000 * 30).toISOString(), // 30 days extension
     };
     saveSeller(updatedSeller);
     toast.success(`مبروك! تم ترقية اشتراك متجرك بنجاح إلى: ${selectedPlan.name}`);
-  };
-
-  const buyAICredits = () => {
-    if (!seller) return;
-    const amount = 500;
-    const price = 100;
-    if (
-      confirm(
-        `هل ترغب في شراء حزمة رصيد إضافية بقيمة 500 رصيد ذكاء اصطناعي مقابل ${formatEGP(price)}؟`,
-      )
-    ) {
-      const updatedSeller: Seller = {
-        ...seller,
-        aiCredits: seller.aiCredits + amount,
-      };
-      saveSeller(updatedSeller);
-      toast.success("تم شحن رصيد إضافي +500 رصيد ذكاء اصطناعي لمتجرك!");
-    }
   };
 
   // 3. Product Variant & Specifications Configuration
@@ -320,23 +301,6 @@ export function SellerDashboard({
             <p className="text-[10px] text-brand-bg/50">
               تاريخ انتهاء الاشتراك: {new Date(seller.planExpiresAt).toLocaleDateString("ar-EG")}
             </p>
-          </div>
-
-          <div className="flex gap-2.5 items-center bg-brand-bg/15 border border-brand-bg/10 p-3 rounded-xl">
-            <div className="text-right">
-              <span className="text-[10px] text-brand-bg/70 block">
-                رصيد الذكاء الاصطناعي (AI Studio)
-              </span>
-              <span className="text-sm font-extrabold text-brand-accent">
-                {seller.aiCredits} رصيد متبقي
-              </span>
-            </div>
-            <button
-              onClick={buyAICredits}
-              className="bg-brand-accent hover:bg-amber-500 text-brand-dark text-[10px] font-extrabold px-3 py-1.5 rounded-lg transition"
-            >
-              شراء رصيد
-            </button>
           </div>
         </div>
       )}

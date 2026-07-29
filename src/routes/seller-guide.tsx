@@ -30,7 +30,9 @@ export const Route = createFileRoute("/seller-guide")({
 
 export function SellerGuidePage() {
   const navigate = useNavigate();
-  const isAdmin = useIsAdmin();
+  const { isAdmin } = useIsAdmin();
+  const simRole = MarketplaceStore.getSimulationRole();
+  const canEdit = isAdmin && simRole !== "visitor" && simRole !== "customer";
   const [isSeller, setIsSeller] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -91,11 +93,49 @@ export function SellerGuidePage() {
     handleSaveTutorials(updated);
   };
 
+  const isSellerOrAdmin =
+    isAdmin ||
+    simRole === "seller" ||
+    simRole === "super_admin" ||
+    isSeller;
+
   if (loading) {
     return (
       <PageShell>
         <div className="max-w-4xl mx-auto px-4 py-16 text-center text-sm text-muted-foreground">
           جاري التحميل...
+        </div>
+      </PageShell>
+    );
+  }
+
+  if (!isSellerOrAdmin) {
+    return (
+      <PageShell>
+        <div className="max-w-2xl mx-auto px-4 py-20 text-center space-y-6" dir="rtl">
+          <div className="w-20 h-20 bg-amber-50 rounded-3xl flex items-center justify-center mx-auto text-amber-800 shadow-sm border border-amber-200/80">
+            <Store className="w-10 h-10" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-2xl font-black text-brand-dark">المركز التعليمي مخصص للبائعين فقط</h2>
+            <p className="text-sm text-brand-dark/70 leading-relaxed max-w-md mx-auto">
+              هذا المركز مخصص للتجار والبائعين المعتمدين للاطلاع على الدليل الشامل وإدارة المتجر والتوجيهات. يرجى تسجيل الدخول بكود أو حساب البائع للوصول.
+            </p>
+          </div>
+          <div className="pt-2 flex items-center justify-center gap-3">
+            <button
+              onClick={() => navigate({ to: "/" })}
+              className="px-6 py-2.5 rounded-2xl bg-brand-dark text-brand-bg font-bold text-sm hover:bg-brand-primary transition cursor-pointer"
+            >
+              العودة للرئيسية
+            </button>
+            <button
+              onClick={() => navigate({ to: "/admin" })}
+              className="px-6 py-2.5 rounded-2xl border border-brand-dark/20 text-brand-dark font-bold text-sm hover:bg-secondary/50 transition cursor-pointer"
+            >
+              تسجيل دخول كبائع
+            </button>
+          </div>
         </div>
       </PageShell>
     );
@@ -126,7 +166,7 @@ export function SellerGuidePage() {
               الانتقال إلى لوحة بائعك
             </button>
 
-            {isAdmin && (
+            {canEdit && (
               <button
                 onClick={() => setShowAddTutorialModal(true)}
                 className="bg-white text-brand-dark font-black px-5 py-2.5 rounded-2xl text-xs hover:bg-amber-100 transition shadow cursor-pointer flex items-center gap-1.5"
@@ -145,7 +185,7 @@ export function SellerGuidePage() {
               key={tut.id}
               className="bg-card border border-brand-dark/10 rounded-3xl p-6 space-y-3 shadow-sm hover:border-brand-accent/40 transition relative group"
             >
-              {isAdmin && (
+              {canEdit && (
                 <button
                   onClick={() => handleDeleteTutorial(tut.id)}
                   className="absolute top-4 left-4 p-2 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-100 transition text-xs font-bold cursor-pointer"

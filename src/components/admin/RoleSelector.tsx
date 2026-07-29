@@ -7,9 +7,17 @@ interface RoleSelectorProps {
   currentRole: "super_admin" | "seller" | "customer" | "visitor";
   onChangeRole: (role: "super_admin" | "seller" | "customer" | "visitor") => void;
   onRefreshData?: () => void;
+  isRealAdmin?: boolean;
+  isRealSeller?: boolean;
 }
 
-export function RoleSelector({ currentRole, onChangeRole, onRefreshData }: RoleSelectorProps) {
+export function RoleSelector({
+  currentRole,
+  onChangeRole,
+  onRefreshData,
+  isRealAdmin = false,
+  isRealSeller = false,
+}: RoleSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [sellers, setSellers] = useState<Seller[]>([]);
   const [selectedSellerId, setSelectedSellerId] = useState("");
@@ -22,6 +30,15 @@ export function RoleSelector({ currentRole, onChangeRole, onRefreshData }: RoleS
   }, [currentRole]);
 
   const selectRole = (role: "super_admin" | "seller" | "customer" | "visitor") => {
+    if (role === "super_admin" && !isRealAdmin) {
+      toast.error("عذراً! دور المدير العام (Super Admin) متوفر فقط للحسابات الإدارية المعتمدة.");
+      return;
+    }
+    if (role === "seller" && !isRealAdmin && !isRealSeller) {
+      toast.error("عذراً! دور البائع متوفر فقط للتجار المعتمدين والمفعلين.");
+      return;
+    }
+
     MarketplaceStore.setSimulationRole(role);
     onChangeRole(role);
     setIsOpen(false);
@@ -47,15 +64,11 @@ export function RoleSelector({ currentRole, onChangeRole, onRefreshData }: RoleS
   };
 
   const resetAllDb = () => {
-    if (
-      confirm(
-        "⚠️ هل أنت متأكد من رغبتك في إعادة ضبط وإعادة تعيين كافة قواعد بيانات لوحة التحكم والقسم المميز للأصل؟",
-      )
-    ) {
-      localStorage.clear();
-      toast.success("تم بنجاح تصفير قواعد البيانات وإعادة تعيينها للافتراضي!");
+    localStorage.clear();
+    toast.success("تم بنجاح تصفير قواعد البيانات وإعادة تعيينها للافتراضي!");
+    setTimeout(() => {
       window.location.reload();
-    }
+    }, 500);
   };
 
   return (

@@ -46,50 +46,50 @@
   --radius: 0.875rem;
 
   /* Elegant Beige, Brown & Black Palette */
-  --brand-dark: oklch(0.18 0.02 45); /* #1C1613 Deep Ebony Black */
-  --brand-primary: oklch(0.40 0.06 45); /* #5C4033 Rich Mahogany Brown */
-  --brand-accent: oklch(0.78 0.07 80); /* #D2B48C Warm Golden Beige */
-  --brand-bg: oklch(0.975 0.015 85); /* #F8F5EE Classic Cream Beige Background */
+  --brand-dark: #1C1613; /* Deep Ebony Black */
+  --brand-primary: #5C4033; /* Rich Mahogany Brown */
+  --brand-accent: #D2B48C; /* Warm Golden Beige */
+  --brand-bg: #F8F5EE; /* Classic Cream Beige Background */
 
-  --background: var(--brand-bg);
-  --foreground: var(--brand-dark);
-  --card: oklch(1 0 0);
-  --card-foreground: var(--brand-dark);
-  --popover: oklch(1 0 0);
-  --popover-foreground: var(--brand-dark);
-  --primary: var(--brand-dark);
-  --primary-foreground: var(--brand-bg);
-  --secondary: oklch(0.94 0.012 80);
-  --secondary-foreground: var(--brand-dark);
-  --muted: oklch(0.94 0.012 80);
-  --muted-foreground: oklch(0.5 0.02 60);
-  --accent: var(--brand-accent);
-  --accent-foreground: var(--brand-dark);
-  --destructive: oklch(0.55 0.2 25);
-  --destructive-foreground: oklch(1 0 0);
-  --border: oklch(0.9 0.015 70);
-  --input: oklch(0.9 0.015 70);
-  --ring: var(--brand-accent);
+  --background: #F8F5EE;
+  --foreground: #1C1613;
+  --card: #FFFFFF;
+  --card-foreground: #1C1613;
+  --popover: #FFFFFF;
+  --popover-foreground: #1C1613;
+  --primary: #1C1613;
+  --primary-foreground: #F8F5EE;
+  --secondary: #EFE8DA;
+  --secondary-foreground: #1C1613;
+  --muted: #EFE8DA;
+  --muted-foreground: #6B5E55;
+  --accent: #D2B48C;
+  --accent-foreground: #1C1613;
+  --destructive: #DC2626;
+  --destructive-foreground: #FFFFFF;
+  --border: rgba(212, 196, 176, 0.5);
+  --input: rgba(212, 196, 176, 0.5);
+  --ring: #D2B48C;
 }
 
 .dark {
-  --background: var(--brand-dark);
-  --foreground: var(--brand-bg);
-  --card: oklch(0.28 0.02 45);
-  --card-foreground: var(--brand-bg);
-  --popover: oklch(0.28 0.02 45);
-  --popover-foreground: var(--brand-bg);
-  --primary: var(--brand-accent);
-  --primary-foreground: var(--brand-dark);
-  --secondary: oklch(0.32 0.02 45);
-  --secondary-foreground: var(--brand-bg);
-  --muted: oklch(0.32 0.02 45);
-  --muted-foreground: oklch(0.7 0.02 70);
-  --accent: var(--brand-accent);
-  --accent-foreground: var(--brand-dark);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: var(--brand-accent);
+  --background: #1C1613;
+  --foreground: #F8F5EE;
+  --card: #2B231F;
+  --card-foreground: #F8F5EE;
+  --popover: #2B231F;
+  --popover-foreground: #F8F5EE;
+  --primary: #D2B48C;
+  --primary-foreground: #1C1613;
+  --secondary: #3A302B;
+  --secondary-foreground: #F8F5EE;
+  --muted: #3A302B;
+  --muted-foreground: #A89C92;
+  --accent: #D2B48C;
+  --accent-foreground: #1C1613;
+  --border: rgba(255, 255, 255, 0.12);
+  --input: rgba(255, 255, 255, 0.15);
+  --ring: #D2B48C;
 }
 
 @layer base {

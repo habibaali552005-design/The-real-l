@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { PageShell } from "@/components/Layout";
 import { useState, useEffect } from "react";
 import { MarketplaceStore, SystemNotification } from "@/lib/marketplaceStore";
+import { supabase } from "@/integrations/supabase/client";
 import {
   Bell,
   CheckCheck,
@@ -26,20 +27,41 @@ export function NotificationsPage() {
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
   const [activeTab, setActiveTab] = useState<"all" | "order" | "message" | "announcement">("all");
+  const [userId, setUserId] = useState<string | null>(null);
 
-  const loadNotifs = () => {
-    setNotifications(MarketplaceStore.getNotifications());
+  const loadNotifs = (uId?: string) => {
+    const targetId = uId || userId;
+    if (targetId) {
+      setNotifications(MarketplaceStore.getNotifications(targetId));
+    }
   };
 
   useEffect(() => {
-    loadNotifs();
-    window.addEventListener("beitak-notifications-updated", loadNotifs);
-    window.addEventListener("storage", loadNotifs);
-    return () => {
-      window.removeEventListener("beitak-notifications-updated", loadNotifs);
-      window.removeEventListener("storage", loadNotifs);
+    let mounted = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
+      const user = data.session?.user;
+      if (!user) {
+        toast.error("يرجى تسجيل الدخول أولاً للوصول للإشعارات الخاصة بك");
+        navigate({ to: "/auth" });
+        return;
+      }
+      setUserId(user.id);
+      loadNotifs(user.id);
+    });
+
+    const handleUpdate = () => {
+      loadNotifs();
     };
-  }, []);
+
+    window.addEventListener("beitak-notifications-updated", handleUpdate);
+    window.addEventListener("storage", handleUpdate);
+    return () => {
+      mounted = false;
+      window.removeEventListener("beitak-notifications-updated", handleUpdate);
+      window.removeEventListener("storage", handleUpdate);
+    };
+  }, [navigate]);
 
   const filteredNotifs = notifications.filter((n) => {
     if (activeTab === "all") return true;
@@ -51,15 +73,17 @@ export function NotificationsPage() {
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   const handleMarkAllRead = () => {
-    MarketplaceStore.markAllNotificationsRead();
-    loadNotifs();
-    toast.success("تم تحديد جميع الإشعارات كمقروءة");
+    if (userId) {
+      MarketplaceStore.markAllNotificationsRead(userId);
+      loadNotifs(userId);
+      toast.success("تم تحديد جميع الإشعارات كمقروءة");
+    }
   };
 
   const handleClearAll = () => {
-    if (confirm("هل تريد مسح جميع الإشعارات؟")) {
-      MarketplaceStore.saveNotifications([]);
-      loadNotifs();
+    if (userId) {
+      MarketplaceStore.saveNotifications([], userId);
+      loadNotifs(userId);
       toast.success("تم مسح السجل بالكامل");
     }
   };

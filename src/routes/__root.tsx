@@ -142,16 +142,20 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+import { GlobalErrorBoundary } from "@/components/GlobalErrorBoundary";
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <CartProvider>
-        <ThemeInjector />
-        <Outlet />
-        <Toaster position="top-center" richColors />
-      </CartProvider>
-    </QueryClientProvider>
+    <GlobalErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <CartProvider>
+          <ThemeInjector />
+          <Outlet />
+          <Toaster position="top-center" richColors />
+        </CartProvider>
+      </QueryClientProvider>
+    </GlobalErrorBoundary>
   );
 }

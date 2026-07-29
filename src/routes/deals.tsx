@@ -23,7 +23,10 @@ export function DealsPage() {
     const customProdsObj = MarketplaceStore.getCustomProducts();
     const customList = Object.values(customProdsObj || {});
 
-    const merged = [...((dbProds as Product[]) || []), ...customList];
+    const merged = MarketplaceStore.filterDeletedProducts([
+      ...((dbProds as Product[]) || []),
+      ...customList,
+    ]);
 
     // Filter deals with real original_price > price
     const dealItems = merged.filter((p: Product) => {
@@ -51,25 +54,17 @@ export function DealsPage() {
   return (
     <PageShell>
       <div className="max-w-7xl mx-auto px-4 py-8 space-y-8" dir="rtl">
-        {/* Banner */}
-        <div className="bg-gradient-to-r from-rose-600 via-amber-600 to-amber-500 text-white p-8 md:p-12 rounded-3xl shadow-2xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
-          <div className="space-y-3 text-center md:text-start relative z-10 max-w-2xl">
-            <span className="inline-flex items-center gap-1.5 bg-white/20 border border-white/30 text-white px-4 py-1.5 rounded-full text-xs font-black">
-              <Flame className="w-4 h-4 fill-amber-300 text-amber-300" /> أقوى التخفيضات والعروض
-              المباشرة
+        {/* Modern Clean Header */}
+        <div className="bg-brand-dark text-white p-6 rounded-2xl shadow-xs flex items-center justify-between">
+          <div className="space-y-1">
+            <span className="inline-flex items-center gap-1.5 text-amber-400 text-xs font-bold">
+              <Flame className="w-4 h-4 fill-amber-400 text-amber-400" /> العروض
             </span>
-            <h1 className="text-2xl md:text-4xl font-black leading-tight">
-              عروض وتخفيضات حقيقية من تجار بيتك المعتمدين 🔥
-            </h1>
-            <p className="text-xs md:text-sm text-white/90 leading-relaxed font-medium">
-              تصفح التخفيضات الفعلية المقدمة من البائعين على قطع الأثاث، الإلكترونيات، والأزياء مع
-              ضمان المعاينة والفحص المباشر قبل الدفع.
-            </p>
+            <h1 className="text-xl md:text-2xl font-bold">التخفيضات والعروض</h1>
           </div>
-
-          <div className="bg-white/10 backdrop-blur-md p-6 rounded-3xl border border-white/20 text-center space-y-1 shrink-0 relative z-10">
-            <span className="text-3xl font-black text-amber-300">{products.length}</span>
-            <p className="text-xs font-bold text-white">منتج متوفر عليه خصم حالياً</p>
+          <div className="text-left">
+            <span className="text-2xl font-bold text-amber-400">{products.length}</span>
+            <p className="text-xs text-slate-300">منتج بعروض</p>
           </div>
         </div>
 

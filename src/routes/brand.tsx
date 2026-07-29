@@ -20,11 +20,18 @@ export function BrandPage() {
   const loadData = async () => {
     const { data: dbProds } = await supabase.from("products").select("*");
     const customProds = Object.values(MarketplaceStore.getCustomProducts() || {});
-    setProducts([...(dbProds || []), ...customProds]);
+    const combined = [...(dbProds || []), ...customProds];
+    setProducts(MarketplaceStore.filterDeletedProducts(combined));
   };
 
   useEffect(() => {
     loadData();
+    window.addEventListener("beitak-products-updated", loadData);
+    window.addEventListener("storage", loadData);
+    return () => {
+      window.removeEventListener("beitak-products-updated", loadData);
+      window.removeEventListener("storage", loadData);
+    };
   }, []);
 
   const availableBrands = useMemo(() => {
@@ -44,26 +51,19 @@ export function BrandPage() {
   return (
     <PageShell>
       <div className="max-w-7xl mx-auto px-4 py-8 space-y-8" dir="rtl">
-        {/* Banner */}
-        <div className="bg-gradient-to-br from-brand-dark via-slate-900 to-brand-primary text-white p-8 md:p-12 rounded-3xl shadow-2xl flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="space-y-3 text-center md:text-start max-w-2xl">
-            <span className="inline-flex items-center gap-1.5 bg-brand-accent/20 text-brand-accent border border-brand-accent/30 px-4 py-1.5 rounded-full text-xs font-black">
-              <ShieldCheck className="w-4 h-4" /> علامات تجارية ومصانع معتمدة
+        {/* Header */}
+        <div className="bg-brand-dark text-white p-6 rounded-2xl shadow-xs flex items-center justify-between">
+          <div className="space-y-1">
+            <span className="inline-flex items-center gap-1.5 text-brand-accent text-xs font-bold">
+              <ShieldCheck className="w-4 h-4" /> الماركات
             </span>
-            <h1 className="text-2xl md:text-4xl font-black">
-              تصفح منتجات أفضل الماركات والعلامات التجارية
-            </h1>
-            <p className="text-xs md:text-sm text-slate-300 leading-relaxed font-medium">
-              اختر العلامة التجارية المطلوبة لاستعراض جميع منتجاتها الأصلية المتاحة للشراء والتوصيل
-              لمحافظتك مباشرة.
-            </p>
+            <h1 className="text-xl md:text-2xl font-bold">العلامات التجارية والماركات</h1>
           </div>
-
-          <div className="bg-white/10 backdrop-blur-md p-6 rounded-3xl border border-white/20 text-center shrink-0">
-            <span className="text-3xl font-black text-brand-accent">
+          <div className="text-left">
+            <span className="text-2xl font-bold text-brand-accent">
               {availableBrands.length - 1}
             </span>
-            <p className="text-xs font-bold text-white">علامة تجارية متوفرة</p>
+            <p className="text-xs text-slate-300">علامة تجارية</p>
           </div>
         </div>
 

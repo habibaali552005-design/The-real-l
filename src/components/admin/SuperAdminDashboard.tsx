@@ -1390,15 +1390,6 @@ export function SuperAdminDashboard() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 md:justify-end">
-                    <div className="bg-secondary/45 border px-3 py-1.5 rounded-xl text-center text-xs">
-                      <span className="text-[10px] text-muted-foreground block">
-                        رصيد الـ AI المتبقي
-                      </span>
-                      <span className="font-extrabold text-brand-primary">
-                        {sel.aiCredits} رصيد
-                      </span>
-                    </div>
-
                     <div className="flex gap-1.5">
                       {sel.status !== "approved" && (
                         <button

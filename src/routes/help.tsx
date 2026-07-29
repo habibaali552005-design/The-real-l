@@ -27,7 +27,9 @@ export const Route = createFileRoute("/help")({
 });
 
 export function HelpCenterPage() {
-  const isAdmin = useIsAdmin();
+  const { isAdmin } = useIsAdmin();
+  const simRole = MarketplaceStore.getSimulationRole();
+  const canEdit = isAdmin && simRole !== "visitor" && simRole !== "customer";
   const [articles, setArticles] = useState<HelpArticle[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("الكل");
@@ -64,7 +66,7 @@ export function HelpCenterPage() {
 
   const filteredArticles = useMemo(() => {
     return articles.filter((art) => {
-      if (!art.published && !isAdmin) return false;
+      if (!art.published && !canEdit) return false;
       const matchesCat = selectedCategory === "الكل" || art.category === selectedCategory;
       const matchesQuery =
         !searchQuery ||
@@ -72,7 +74,7 @@ export function HelpCenterPage() {
         art.content.toLowerCase().includes(searchQuery.toLowerCase());
       return matchesCat && matchesQuery;
     });
-  }, [articles, selectedCategory, searchQuery, isAdmin]);
+  }, [articles, selectedCategory, searchQuery, canEdit]);
 
   const handleSaveArticle = (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,10 +104,8 @@ export function HelpCenterPage() {
   };
 
   const handleDelete = (id: string) => {
-    if (confirm("هل أنت تأكد من حذف هذا المقال من مركز المساعدة؟")) {
-      MarketplaceStore.deleteHelpArticle(id);
-      toast.success("تم الحذف بنجاح");
-    }
+    MarketplaceStore.deleteHelpArticle(id);
+    toast.success("تم الحذف بنجاح");
   };
 
   return (
@@ -157,7 +157,7 @@ export function HelpCenterPage() {
             ))}
           </div>
 
-          {isAdmin && (
+          {canEdit && (
             <button
               onClick={() => {
                 setEditingId(null);
@@ -206,7 +206,7 @@ export function HelpCenterPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {isAdmin && (
+                      {canEdit && (
                         <div
                           className="flex items-center gap-1"
                           onClick={(e) => e.stopPropagation()}

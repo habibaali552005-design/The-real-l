@@ -21,13 +21,64 @@ import {
   Star,
   SlidersHorizontal,
   Check,
+  ChevronLeft,
 } from "lucide-react";
 import { z } from "zod";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { ProductQuickViewModal } from "@/components/ProductQuickViewModal";
 import { Product, EGYPT_GOVERNORATES, isWomenProduct } from "@/types";
 
-import { MarketplaceStore } from "@/lib/marketplaceStore";
+import { MarketplaceStore, CategoryNode } from "@/lib/marketplaceStore";
+
+function getCategoryFamilyNames(activeCat: string, categoryTree: CategoryNode[]): Set<string> {
+  const family = new Set<string>();
+  if (!activeCat || activeCat === "الكل") return family;
+
+  const target = activeCat.trim().toLowerCase();
+
+  const matchedNodes = categoryTree.filter(
+    (c) =>
+      c.name.trim().toLowerCase() === target ||
+      c.id.trim().toLowerCase() === target ||
+      c.slug.trim().toLowerCase() === target,
+  );
+
+  if (matchedNodes.length > 0) {
+    matchedNodes.forEach((node) => {
+      family.add(node.name.trim());
+      family.add(node.id.trim());
+      family.add(node.slug.trim());
+
+      const addChildren = (parentId: string) => {
+        const children = categoryTree.filter((c) => c.parentId === parentId);
+        children.forEach((child) => {
+          family.add(child.name.trim());
+          family.add(child.id.trim());
+          family.add(child.slug.trim());
+          addChildren(child.id);
+        });
+      };
+      addChildren(node.id);
+    });
+  } else {
+    family.add(activeCat.trim());
+  }
+
+  return family;
+}
+
+function getCategoryProductCount(
+  catNameOrId: string,
+  categoryTree: CategoryNode[],
+  allProducts: Product[],
+): number {
+  if (catNameOrId === "الكل") return allProducts.length;
+  const family = getCategoryFamilyNames(catNameOrId, categoryTree);
+  return allProducts.filter((p) => {
+    const pCat = (p.category || "").trim();
+    return family.has(pCat) || family.has(pCat.toLowerCase());
+  }).length;
+}
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
@@ -70,7 +121,7 @@ const productsQuery = {
       }
     });
 
-    return updatedList;
+    return MarketplaceStore.filterDeletedProducts(updatedList);
   },
 };
 
@@ -103,6 +154,7 @@ const searchSchema = z.object({
   sort: z.enum(["new", "price_asc", "price_desc", "name", "rating"]).optional(),
   color: z.string().optional(),
   size: z.string().optional(),
+  brand: z.string().optional(),
 });
 
 export const Route = createFileRoute("/products")({
@@ -183,17 +235,43 @@ function ProductsPage() {
   const sort = search.sort ?? "new";
   const stock = search.stock ?? "all";
   const selectedGov = search.gov ?? "الكل";
+  const selectedBrand = search.brand || "الكل";
+
+  // Load category tree from MarketplaceStore
+  const categoryTree = useMemo(() => MarketplaceStore.getCategories(), []);
+
+  const activeCatFamily = useMemo(() => {
+    if (!activeCat || activeCat === "الكل") return null;
+    return getCategoryFamilyNames(activeCat, categoryTree);
+  }, [activeCat, categoryTree]);
+
+  // Dynamic Amazon-style Facets
+  const availableBrands = Array.from(
+    new Set(products.map((p) => p.brand).filter(Boolean) as string[]),
+  );
+  const availableSizes = Array.from(
+    new Set(products.flatMap((p) => p.sizes || []).filter(Boolean)),
+  );
+  const availableColors = Array.from(
+    new Set(products.flatMap((p) => p.colors || []).filter(Boolean)),
+  );
 
   // Filter Logic
   let filtered = products.filter((p) => {
-    if (activeCat !== "الكل" && p.category !== activeCat) return false;
+    if (activeCatFamily) {
+      const pCat = (p.category || "").trim();
+      if (!activeCatFamily.has(pCat) && !activeCatFamily.has(pCat.toLowerCase())) {
+        return false;
+      }
+    }
+    if (selectedBrand !== "الكل" && p.brand !== selectedBrand) return false;
     if (query) {
       const pRecord = p as unknown as Record<string, unknown>;
       const specificationsStr = pRecord.specifications
         ? JSON.stringify(pRecord.specifications)
         : "";
       const hay =
-        `${p.name} ${p.description ?? ""} ${p.category} ${specificationsStr}`.toLowerCase();
+        `${p.name} ${p.brand || ""} ${p.seller_name || ""} ${p.description ?? ""} ${p.category} ${specificationsStr}`.toLowerCase();
       if (!hay.includes(query)) return false;
     }
     if (search.min != null && Number(p.price) < search.min) return false;
@@ -257,6 +335,7 @@ function ProductsPage() {
   const hasFilters =
     !!search.q ||
     !!search.cat ||
+    !!search.brand ||
     search.min != null ||
     search.max != null ||
     (search.gov && search.gov !== "الكل") ||
@@ -287,31 +366,216 @@ function ProductsPage() {
         </div>
       </div>
 
-      {/* Categories List */}
+      {/* Categories List - Amazon-Style Hierarchical Tree */}
       <div className="bg-card border border-brand-dark/5 p-4 rounded-2xl space-y-3 shadow-xs">
-        <h3 className="text-xs font-bold text-brand-dark border-b border-brand-dark/5 pb-2">
-          أقسام المنتجات المعروضة:
+        <h3 className="text-xs font-bold text-brand-dark border-b border-brand-dark/5 pb-2 flex items-center justify-between">
+          <span>الأقسام والتصنيفات</span>
+          {activeCat !== "الكل" && (
+            <button
+              onClick={() => updateSearch({ cat: undefined })}
+              className="text-[10px] text-rose-600 hover:underline flex items-center gap-0.5 cursor-pointer"
+            >
+              <X className="w-3 h-3" /> إزالة
+            </button>
+          )}
         </h3>
-        <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
-          {CATEGORIES.map((catName) => {
-            const isSelected = activeCat === catName;
-            return (
-              <button
-                key={catName}
-                onClick={() => updateSearch({ cat: catName === "الكل" ? undefined : catName })}
-                className={`w-full text-right px-3 py-2 rounded-xl text-xs font-bold flex justify-between items-center transition cursor-pointer ${
-                  isSelected
-                    ? "bg-brand-primary text-brand-bg shadow-sm"
-                    : "hover:bg-brand-bg text-brand-dark"
-                }`}
-              >
-                <span>{catName}</span>
-                {isSelected && <Check className="w-3.5 h-3.5" />}
-              </button>
-            );
-          })}
+
+        <div className="space-y-1 max-h-80 overflow-y-auto pr-1">
+          {/* All products option */}
+          <button
+            onClick={() => updateSearch({ cat: undefined })}
+            className={`w-full text-right px-3 py-1.5 rounded-xl text-xs font-bold flex justify-between items-center transition cursor-pointer ${
+              activeCat === "الكل"
+                ? "bg-brand-primary text-white shadow-xs"
+                : "hover:bg-brand-bg text-brand-dark"
+            }`}
+          >
+            <span>جميع الأقسام</span>
+            <span className="text-[10px] opacity-75 dir-ltr">({products.length})</span>
+          </button>
+
+          {/* Root Categories */}
+          {categoryTree
+            .filter((c) => !c.parentId)
+            .map((rootCat) => {
+              const isRootSelected =
+                activeCat === rootCat.name ||
+                activeCat === rootCat.id ||
+                activeCat === rootCat.slug;
+              const rootFamily = getCategoryFamilyNames(rootCat.name, categoryTree);
+              const isDescendantSelected = Array.from(rootFamily).some(
+                (f) => f.toLowerCase() === activeCat.toLowerCase(),
+              );
+              const rootCount = getCategoryProductCount(rootCat.name, categoryTree, products);
+              const children = categoryTree.filter((c) => c.parentId === rootCat.id);
+
+              return (
+                <div key={rootCat.id} className="space-y-0.5">
+                  <button
+                    onClick={() => updateSearch({ cat: rootCat.name })}
+                    className={`w-full text-right px-3 py-1.5 rounded-xl text-xs font-bold flex justify-between items-center transition cursor-pointer ${
+                      isRootSelected
+                        ? "bg-brand-primary text-white shadow-xs"
+                        : isDescendantSelected
+                          ? "bg-brand-primary/10 text-brand-primary font-black"
+                          : "hover:bg-brand-bg text-brand-dark"
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      {children.length > 0 && (
+                        <ChevronLeft
+                          className={`w-3 h-3 transition-transform ${isDescendantSelected ? "-rotate-90 text-brand-primary" : ""}`}
+                        />
+                      )}
+                      {rootCat.name}
+                    </span>
+                    <span className="text-[10px] opacity-75 dir-ltr">({rootCount})</span>
+                  </button>
+
+                  {/* Subcategories if root or descendant is active */}
+                  {(isDescendantSelected || isRootSelected) && children.length > 0 && (
+                    <div className="mr-3 pl-1 border-r-2 border-brand-primary/20 space-y-0.5 my-1">
+                      {children.map((subCat) => {
+                        const isSubSelected =
+                          activeCat === subCat.name ||
+                          activeCat === subCat.id ||
+                          activeCat === subCat.slug;
+                        const subFamily = getCategoryFamilyNames(subCat.name, categoryTree);
+                        const isSubDescendantSelected = Array.from(subFamily).some(
+                          (f) => f.toLowerCase() === activeCat.toLowerCase(),
+                        );
+                        const subCount = getCategoryProductCount(
+                          subCat.name,
+                          categoryTree,
+                          products,
+                        );
+                        const subChildren = categoryTree.filter((c) => c.parentId === subCat.id);
+
+                        return (
+                          <div key={subCat.id} className="space-y-0.5">
+                            <button
+                              onClick={() => updateSearch({ cat: subCat.name })}
+                              className={`w-full text-right px-2.5 py-1 rounded-lg text-[11px] font-semibold flex justify-between items-center transition cursor-pointer ${
+                                isSubSelected
+                                  ? "bg-brand-primary text-white"
+                                  : isSubDescendantSelected
+                                    ? "bg-brand-primary/15 text-brand-primary font-bold"
+                                    : "hover:bg-brand-bg text-slate-700"
+                              }`}
+                            >
+                              <span>• {subCat.name}</span>
+                              <span className="text-[9px] opacity-75 dir-ltr">({subCount})</span>
+                            </button>
+
+                            {/* Sub-Subcategories */}
+                            {(isSubDescendantSelected || isSubSelected) &&
+                              subChildren.length > 0 && (
+                                <div className="mr-3 space-y-0.5 my-0.5 border-r border-brand-primary/10 pr-1">
+                                  {subChildren.map((leafCat) => {
+                                    const isLeafSelected =
+                                      activeCat === leafCat.name ||
+                                      activeCat === leafCat.id ||
+                                      activeCat === leafCat.slug;
+                                    const leafCount = getCategoryProductCount(
+                                      leafCat.name,
+                                      categoryTree,
+                                      products,
+                                    );
+                                    return (
+                                      <button
+                                        key={leafCat.id}
+                                        onClick={() => updateSearch({ cat: leafCat.name })}
+                                        className={`w-full text-right px-2 py-0.5 rounded text-[10px] flex justify-between items-center transition cursor-pointer ${
+                                          isLeafSelected
+                                            ? "bg-brand-primary text-white font-bold"
+                                            : "hover:bg-brand-bg text-slate-600"
+                                        }`}
+                                      >
+                                        <span>- {leafCat.name}</span>
+                                        <span className="text-[9px] opacity-75 dir-ltr">
+                                          ({leafCount})
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
         </div>
       </div>
+
+      {/* Brands Filter Facet */}
+      {availableBrands.length > 0 && (
+        <div className="bg-card border border-brand-dark/5 p-4 rounded-2xl space-y-3 shadow-xs">
+          <h3 className="text-xs font-bold text-brand-dark border-b border-brand-dark/5 pb-2">
+            الماركة والعلامة التجارية:
+          </h3>
+          <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+            <button
+              onClick={() => updateSearch({ brand: undefined })}
+              className={`w-full text-right px-3 py-1.5 rounded-xl text-xs font-bold flex justify-between items-center transition cursor-pointer ${
+                selectedBrand === "الكل"
+                  ? "bg-brand-primary text-white shadow-xs"
+                  : "hover:bg-brand-bg text-brand-dark"
+              }`}
+            >
+              <span>جميع الماركات</span>
+              {selectedBrand === "الكل" && <Check className="w-3.5 h-3.5" />}
+            </button>
+            {availableBrands.map((bName) => {
+              const isSelected = selectedBrand === bName;
+              return (
+                <button
+                  key={bName}
+                  onClick={() => updateSearch({ brand: isSelected ? undefined : bName })}
+                  className={`w-full text-right px-3 py-1.5 rounded-xl text-xs font-bold flex justify-between items-center transition cursor-pointer ${
+                    isSelected
+                      ? "bg-brand-primary text-white shadow-xs"
+                      : "hover:bg-brand-bg text-brand-dark"
+                  }`}
+                >
+                  <span>{bName}</span>
+                  {isSelected && <Check className="w-3.5 h-3.5" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Sizes Facet Filter */}
+      {availableSizes.length > 0 && (
+        <div className="bg-card border border-brand-dark/5 p-4 rounded-2xl space-y-3 shadow-xs">
+          <h3 className="text-xs font-bold text-brand-dark border-b border-brand-dark/5 pb-2">
+            المقاسات المتوفرة:
+          </h3>
+          <div className="flex flex-wrap gap-1.5">
+            {availableSizes.map((sz) => {
+              const isSelected = search.size === sz;
+              return (
+                <button
+                  key={sz}
+                  onClick={() => updateSearch({ size: isSelected ? undefined : sz })}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                    isSelected
+                      ? "bg-brand-primary text-white border-brand-primary"
+                      : "bg-brand-bg border-brand-dark/10 text-brand-dark hover:border-brand-primary"
+                  }`}
+                >
+                  {sz}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Governorate Shipping Filter */}
       <div className="bg-card border border-brand-dark/5 p-4 rounded-2xl space-y-2 shadow-xs">
@@ -394,31 +658,17 @@ function ProductsPage() {
 
   return (
     <PageShell>
-      {/* Header Banner */}
-      <div
-        className="bg-brand-dark text-brand-bg px-6 py-10 text-center relative overflow-hidden"
-        dir="rtl"
-      >
-        <div className="max-w-3xl mx-auto space-y-3 relative z-10">
-          <div className="inline-flex items-center gap-1.5 bg-brand-accent/20 text-brand-accent text-xs font-black px-3.5 py-1 rounded-full mb-1">
-            <Sparkles className="w-3.5 h-3.5" />
-            معرض الأثاث والمنتجات الذكية المميز
-          </div>
-          <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight">سوق بيتك المباشر</h1>
-          <p className="text-brand-bg/75 text-xs md:text-sm max-w-lg mx-auto leading-relaxed">
-            اكتشف آلاف المنتجات بضمان معاينة حقيقي عند التسليم ومطابقة للمواصفات القياسية.
-          </p>
-
-          {/* Management Quick Toolbar for Sellers and Super Admin */}
-          <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
-            <Link
-              to="/categories"
-              className="bg-white/10 hover:bg-white/20 text-white font-bold px-4 py-2 rounded-xl text-xs border border-white/20 transition flex items-center gap-1.5 cursor-pointer"
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5 text-brand-accent" />
-              إدارة واستعراض جميع الأقسام
-            </Link>
-          </div>
+      {/* Clean Header */}
+      <div className="border-b border-brand-dark/10 bg-card py-5 px-6" dir="rtl">
+        <div className="max-w-[1550px] mx-auto flex items-center justify-between">
+          <h1 className="text-xl md:text-2xl font-bold text-brand-dark">جميع المنتجات</h1>
+          <Link
+            to="/categories"
+            className="text-xs font-bold text-brand-primary hover:underline flex items-center gap-1 cursor-pointer"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5 text-brand-accent" />
+            الأقسام والتصنيفات
+          </Link>
         </div>
       </div>
 
@@ -530,6 +780,14 @@ function ProductsPage() {
                     </button>
                   </span>
                 )}
+                {search.brand && (
+                  <span className="bg-brand-primary/10 text-brand-primary text-[11px] font-black px-2.5 py-1 rounded-full flex items-center gap-1">
+                    الماركة: {search.brand}
+                    <button onClick={() => updateSearch({ brand: undefined })}>
+                      <X className="w-3 h-3 hover:text-brand-dark transition" />
+                    </button>
+                  </span>
+                )}
                 {search.q && (
                   <span className="bg-brand-primary/10 text-brand-primary text-[11px] font-black px-2.5 py-1 rounded-full flex items-center gap-1">
                     البحث: &quot;{search.q}&quot;
@@ -603,6 +861,18 @@ function ProductsPage() {
                           <h3 className="font-bold text-sm text-brand-dark group-hover:text-brand-primary transition">
                             {p.name}
                           </h3>
+                          {(p.brand || p.seller_name) && (
+                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground pt-0.5">
+                              {p.brand && (
+                                <span className="font-bold text-brand-dark/90 bg-brand-dark/5 px-2 py-0.5 rounded-md">
+                                  الماركة: {p.brand}
+                                </span>
+                              )}
+                              {p.seller_name && (
+                                <span className="font-medium">المتجر: {p.seller_name}</span>
+                              )}
+                            </div>
+                          )}
                           <p className="text-xs text-muted-foreground line-clamp-1 max-w-md">
                             {p.description ||
                               p.short_description ||
@@ -698,6 +968,20 @@ function ProductsPage() {
                         <h3 className="font-bold text-xs md:text-sm text-brand-dark group-hover:text-brand-primary transition line-clamp-2 leading-snug">
                           {p.name}
                         </h3>
+                        {(p.brand || p.seller_name) && (
+                          <div className="flex items-center gap-1.5 flex-wrap text-[10px] text-muted-foreground pt-0.5">
+                            {p.brand && (
+                              <span className="font-bold text-brand-dark/80 bg-brand-dark/5 px-1.5 py-0.5 rounded">
+                                {p.brand}
+                              </span>
+                            )}
+                            {p.seller_name && (
+                              <span className="font-semibold text-brand-dark/70">
+                                {p.seller_name}
+                              </span>
+                            )}
+                          </div>
+                        )}
                         {p.short_description && (
                           <p className="text-[10px] text-muted-foreground line-clamp-1">
                             {p.short_description}
@@ -719,23 +1003,10 @@ function ProductsPage() {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (
-                            (p.colors && p.colors.length > 0) ||
-                            (p.sizes && p.sizes.length > 0)
-                          ) {
-                            toast.info(
-                              "يرجى تحديد الخيارات المطلوبة (اللون / المقاس) بالصفحة أولاً",
-                            );
-                            setQuickViewProduct(p);
-                          } else {
-                            add({
-                              id: p.id,
-                              name: p.name,
-                              price: Number(p.price),
-                              image_url: p.image_url,
-                            });
-                            toast.success(`تمت إضافة "${p.name}" إلى السلة بنجاح!`);
-                          }
+                          toast.info(
+                            "يرجى تحديد الخيارات المطلوبة (اللون / المقاس / النقاش) أولاً",
+                          );
+                          setQuickViewProduct(p);
                         }}
                         disabled={!p.in_stock}
                         className="h-8 px-3 rounded-xl text-xs font-black bg-brand-dark text-brand-bg hover:bg-brand-primary active:scale-95 transition flex items-center gap-1 shadow-xs disabled:opacity-40 cursor-pointer"

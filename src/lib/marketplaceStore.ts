@@ -1,6 +1,15 @@
 import { Database } from "@/integrations/supabase/types";
 import { ProductReview } from "@/types";
 
+export interface CategoryNode {
+  id: string;
+  name: string;
+  slug: string;
+  parentId: string | null;
+  icon?: string;
+  sortOrder?: number;
+}
+
 export interface WomenLoungeSettings {
   enabled: boolean;
   gateTitle: string;
@@ -26,6 +35,17 @@ const DEFAULT_WOMEN_LOUNGE_SETTINGS: WomenLoungeSettings = {
   ],
 };
 
+export interface CustomLiveSection {
+  id: string;
+  title: string;
+  subtitle: string;
+  type: "banner" | "notice" | "card" | "button";
+  badgeText?: string;
+  buttonText?: string;
+  buttonUrl?: string;
+  bgColor?: string;
+}
+
 export interface WebsiteThemeSettings {
   primaryFont: string;
   themeMode: "light" | "dark" | "luxury";
@@ -42,6 +62,9 @@ export interface WebsiteThemeSettings {
   bannerTitle?: string;
   bannerSubtitle?: string;
   bannerCtaText?: string;
+
+  // Custom Live Builder Dynamic Sections
+  customLiveSections?: CustomLiveSection[];
 
   // Advanced Homepage Builder Fields
   homepageTheme?: string;
@@ -68,10 +91,10 @@ export interface WebsiteThemeSettings {
 const DEFAULT_THEME_SETTINGS: WebsiteThemeSettings = {
   primaryFont: "Cairo",
   themeMode: "light",
-  brandDark: "oklch(0.18 0.02 45)",
-  brandPrimary: "oklch(0.40 0.06 45)",
-  brandAccent: "oklch(0.78 0.07 80)",
-  brandBg: "oklch(0.975 0.015 85)",
+  brandDark: "#1C1613",
+  brandPrimary: "#5C4033",
+  brandAccent: "#D2B48C",
+  brandBg: "#F8F5EE",
   showLoyalty: true,
   showBlog: false,
   headerStyle: "split",
@@ -82,6 +105,19 @@ const DEFAULT_THEME_SETTINGS: WebsiteThemeSettings = {
   bannerSubtitle:
     "اكتشف أحدث تشكيلة من غرف المعيشة، المفروشات، والكنب العصري بأسعار ممتازة وجاذبية لا تقاوم.",
   bannerCtaText: "تسوق التشكيلة الآن",
+
+  customLiveSections: [
+    {
+      id: "sec-default-1",
+      title: "عروض الحجز المبكر والقطع الحصرية 2026",
+      subtitle: "استمتع بخصم إضافي 15% وشحن لكل محافظات مصر عند الطلب اليوم عبر موقع بيتك.",
+      type: "banner",
+      badgeText: "عروض الموسم",
+      buttonText: "استكشف المنتجات المميزة",
+      buttonUrl: "/products",
+      bgColor: "bg-[#1C1613] text-[#F8F5EE] border-[#D2B48C]",
+    },
+  ],
 
   // Default Builder Defaults
   homepageTheme: "modern",
@@ -94,10 +130,10 @@ const DEFAULT_THEME_SETTINGS: WebsiteThemeSettings = {
     "latest",
     "cta",
   ],
-  homepageBg: "#F8F5EE",
-  homepageText: "#1C1613",
-  homepagePrimary: "#5C4033",
-  homepageAccent: "#D2B48C",
+  homepageBg: "#FDFBF7",
+  homepageText: "#2D241E",
+  homepagePrimary: "#8C6A5D",
+  homepageAccent: "#C5A059",
   homepageCard: "#FFFFFF",
   heroTitle: "كل اللي بيتك محتاجه في مكان واحد",
   heroSubtitle: "أثاث، أجهزة كهربائية، سيارات، وعقارات — بيع وشراء بأمان مع بيتك.",
@@ -185,7 +221,7 @@ export interface ProductMetadata {
   brand?: string;
   collection?: string;
   customFields: Array<{ name: string; value: string }>;
-  specifications: Array<{ name: string; value: string }>;
+  specifications: Array<{ name: string; value: string }> | Record<string, string>;
   variants: ProductVariant[];
   images: Array<{ url: string; sortOrder: number }>;
   warehouseStocks: Record<string, number>; // warehouseId -> stock
@@ -193,6 +229,9 @@ export interface ProductMetadata {
   platformCutRate?: number;
   platformMerchantFeeRate?: number;
   deliveryFee?: number;
+  colors?: string[];
+  sizes?: string[];
+  patterns?: string[];
 }
 
 export interface Coupon {
@@ -313,17 +352,10 @@ const INITIAL_ROLES: DynamicRole[] = [
   },
   {
     id: "role-seller-premium",
-    name: "تاجر مميز (Premium Seller)",
+    name: "تاجر مسجل (Seller)",
     description:
-      "صلاحيات رفع المنتجات، إدارة الطلبات، استخدام استوديو الذكاء الاصطناعي، والوصول للتقارير المتقدمة",
-    permissions: [
-      "sell_products",
-      "use_ai_studio",
-      "use_batch_editor",
-      "manage_warehouses",
-      "view_reports",
-      "custom_branding",
-    ],
+      "صلاحيات رفع المنتجات الخاصة، متابعة الطلبات، إدارة المستودعات، والوصول للتقارير المطبقة متجرك",
+    permissions: ["sell_products", "manage_warehouses", "view_reports", "custom_branding"],
   },
   {
     id: "role-seller-standard",
@@ -539,15 +571,56 @@ export class MarketplaceStore {
   }
 
   // Custom Product Edits & Local Overrides Persistence
+  static getDeletedProductIds(): string[] {
+    return getStored<string[]>("deleted_product_ids", []);
+  }
+
+  static deleteProduct(productId: string) {
+    const list = this.getCustomProducts();
+    if (list[productId]) {
+      delete list[productId];
+      setStored("custom_products", list);
+    }
+    const deleted = this.getDeletedProductIds();
+    if (!deleted.includes(productId)) {
+      deleted.push(productId);
+      setStored("deleted_product_ids", deleted);
+    }
+    window.dispatchEvent(
+      new CustomEvent("beitak-products-updated", { detail: { action: "delete", id: productId } }),
+    );
+    window.dispatchEvent(new Event("storage"));
+  }
+
+  static filterDeletedProducts<T extends { id: string }>(productsList: T[]): T[] {
+    const deletedSet = new Set(this.getDeletedProductIds());
+    return productsList.filter((p) => p && !deletedSet.has(p.id));
+  }
+
   static getCustomProducts(): Record<string, Partial<Product>> {
-    return getStored<Record<string, Partial<Product>>>("custom_products", {});
+    const custom = getStored<Record<string, Partial<Product>>>("custom_products", {});
+    const deletedSet = new Set(this.getDeletedProductIds());
+    const cleaned: Record<string, Partial<Product>> = {};
+    Object.keys(custom).forEach((id) => {
+      if (!deletedSet.has(id)) {
+        cleaned[id] = custom[id];
+      }
+    });
+    return cleaned;
   }
 
   static saveCustomProduct(productId: string, productData: Partial<Product>) {
     const list = this.getCustomProducts();
     list[productId] = { ...(list[productId] || {}), ...productData };
     setStored("custom_products", list);
-    window.dispatchEvent(new Event("beitak-products-updated"));
+
+    // Un-delete if previously marked as deleted
+    const deleted = this.getDeletedProductIds().filter((id) => id !== productId);
+    setStored("deleted_product_ids", deleted);
+
+    window.dispatchEvent(
+      new CustomEvent("beitak-products-updated", { detail: { action: "save", id: productId } }),
+    );
     window.dispatchEvent(new Event("storage"));
   }
 
@@ -608,45 +681,11 @@ export class MarketplaceStore {
     return DEFAULT_THEME_SETTINGS;
   }
   static getSiteThemeSettings(): WebsiteThemeSettings {
-    const stored = getStored<WebsiteThemeSettings>("site_theme_settings", DEFAULT_THEME_SETTINGS);
-
-    // ── Color migration: upgrade old washed-out defaults to richer values ──
-    // If the stored values still carry the old light palette (e.g. from a
-    // previous color-picker interaction), silently migrate them in place so
-    // every returning user gets the correct rich brand colours.
-    let dirty = false;
-    const migrated = { ...stored };
-
-    const OLD_PRIMARY = "#8C6A5D";
-    const OLD_ACCENT  = "#C5A059";
-    const OLD_BG      = "#FDFBF7";
-    const OLD_TEXT    = "#2D241E";
-
-    if (migrated.homepagePrimary === OLD_PRIMARY) {
-      migrated.homepagePrimary = DEFAULT_THEME_SETTINGS.homepagePrimary;
-      dirty = true;
+    const settings = getStored<WebsiteThemeSettings>("site_theme_settings", DEFAULT_THEME_SETTINGS);
+    if (!settings.customLiveSections) {
+      settings.customLiveSections = DEFAULT_THEME_SETTINGS.customLiveSections;
     }
-    if (migrated.homepageAccent === OLD_ACCENT) {
-      migrated.homepageAccent = DEFAULT_THEME_SETTINGS.homepageAccent;
-      dirty = true;
-    }
-    if (migrated.homepageBg === OLD_BG) {
-      migrated.homepageBg = DEFAULT_THEME_SETTINGS.homepageBg;
-      dirty = true;
-    }
-    if (migrated.homepageText === OLD_TEXT) {
-      migrated.homepageText = DEFAULT_THEME_SETTINGS.homepageText;
-      dirty = true;
-    }
-
-    if (dirty) {
-      setStored("site_theme_settings", migrated);
-    }
-    return migrated;
-  }
-  static resetSiteThemeSettings() {
-    setStored("site_theme_settings", DEFAULT_THEME_SETTINGS);
-    return DEFAULT_THEME_SETTINGS;
+    return settings;
   }
   static saveSiteThemeSettings(settings: WebsiteThemeSettings) {
     setStored("site_theme_settings", settings);
@@ -1533,10 +1572,12 @@ export class MarketplaceStore {
   }
 
   // ==========================================
-  // 4. Unified Notification Center
+  // 4. Unified Notification Center (User Isolated)
   // ==========================================
-  static getNotifications(): SystemNotification[] {
-    return getStored<SystemNotification[]>("system_notifications", [
+  static getNotifications(userId?: string): SystemNotification[] {
+    if (!userId) return [];
+    const key = `system_notifications_${userId}`;
+    return getStored<SystemNotification[]>(key, [
       {
         id: "notif-1",
         title: "مرحباً بك في منصة بيتك 🏠",
@@ -1545,51 +1586,48 @@ export class MarketplaceStore {
         read: false,
         createdAt: "الآن",
       },
-      {
-        id: "notif-2",
-        title: "شحن مجاني لفترة محدودة 🚚",
-        message: "استمتع بشحن مجاني على كافة الطلبات لأي محافظة عند التسوق اليوم.",
-        type: "announcement",
-        read: false,
-        createdAt: "منذ ساعتين",
-      },
     ]);
+  }
+
+  static saveNotifications(notifs: SystemNotification[], userId?: string) {
+    if (!userId) return;
+    const key = `system_notifications_${userId}`;
+    setStored(key, notifs);
+    window.dispatchEvent(new Event("beitak-notifications-updated"));
+    window.dispatchEvent(new Event("storage"));
   }
 
   static addNotification(
     notif: Omit<SystemNotification, "id" | "read" | "createdAt">,
+    userId?: string,
   ): SystemNotification {
-    const list = this.getNotifications();
+    const list = this.getNotifications(userId);
     const newNotif: SystemNotification = {
       ...notif,
       id: "notif-" + Date.now(),
       read: false,
       createdAt: new Date().toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" }),
     };
-    setStored("system_notifications", [newNotif, ...list]);
-    window.dispatchEvent(new Event("beitak-notifications-updated"));
-    window.dispatchEvent(new Event("storage"));
+    if (userId) {
+      this.saveNotifications([newNotif, ...list], userId);
+    }
     return newNotif;
   }
 
-  static markNotificationRead(id: string) {
-    const list = this.getNotifications();
+  static markNotificationRead(id: string, userId?: string) {
+    const list = this.getNotifications(userId);
     const updated = list.map((n) => (n.id === id ? { ...n, read: true } : n));
-    setStored("system_notifications", updated);
-    window.dispatchEvent(new Event("beitak-notifications-updated"));
-    window.dispatchEvent(new Event("storage"));
+    this.saveNotifications(updated, userId);
   }
 
-  static markAllNotificationsRead() {
-    const list = this.getNotifications();
+  static markAllNotificationsRead(userId?: string) {
+    const list = this.getNotifications(userId);
     const updated = list.map((n) => ({ ...n, read: true }));
-    setStored("system_notifications", updated);
-    window.dispatchEvent(new Event("beitak-notifications-updated"));
-    window.dispatchEvent(new Event("storage"));
+    this.saveNotifications(updated, userId);
   }
 
-  static getUnreadNotificationCount(): number {
-    return this.getNotifications().filter((n) => !n.read).length;
+  static getUnreadNotificationCount(userId?: string): number {
+    return this.getNotifications(userId).filter((n) => !n.read).length;
   }
 
   // ==========================================

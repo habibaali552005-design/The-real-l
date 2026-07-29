@@ -30,12 +30,14 @@ export const Route = createFileRoute("/categories")({
 });
 
 export function CategoriesPage() {
-  const isAdmin = useIsAdmin();
+  const { isAdmin } = useIsAdmin();
   const navigate = useNavigate();
 
   const [categories, setCategories] = useState<CategoryNode[]>([]);
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [catSearchQuery, setCatSearchQuery] = useState("");
+  const [mounted, setMounted] = useState(false);
 
   // Form & Edit states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -48,16 +50,13 @@ export function CategoriesPage() {
   const [editParentId, setEditParentId] = useState<string>("");
   const [editIcon, setEditIcon] = useState<string>("");
 
-  // Merge modal
-  const [sourceCatId, setSourceCatId] = useState("");
-  const [targetCatId, setTargetCatId] = useState("");
-
   const loadData = () => {
     const list = MarketplaceStore.getCategories();
     setCategories(list);
   };
 
   useEffect(() => {
+    setMounted(true);
     loadData();
     supabase.auth.getUser().then(({ data }) => {
       if (data?.user) {
@@ -74,7 +73,12 @@ export function CategoriesPage() {
     };
   }, []);
 
-  const isSeller = userRole === "seller" || userRole === "admin" || isAdmin;
+  const simRole = mounted ? MarketplaceStore.getSimulationRole() : "visitor";
+  const canManage =
+    mounted &&
+    (isAdmin || userRole === "admin" || userRole === "seller") &&
+    simRole !== "visitor" &&
+    simRole !== "customer";
 
   // Selected Category Node
   const currentCategory = useMemo(() => {
@@ -133,13 +137,9 @@ export function CategoriesPage() {
 
   // Delete Category
   const handleDelete = (cat: CategoryNode) => {
-    if (
-      confirm(`هل أنت تأكد من حذف قسم "${cat.name}"؟ ستبقى جميع المنتجات المرتبطة به غير محذوفة.`)
-    ) {
-      MarketplaceStore.deleteCategory(cat.id);
-      if (selectedCatId === cat.id) setSelectedCatId(null);
-      toast.success("تم حذف القسم وتنسيق التدرج الهرمي بنجاح");
-    }
+    MarketplaceStore.deleteCategory(cat.id);
+    if (selectedCatId === cat.id) setSelectedCatId(null);
+    toast.success("تم حذف القسم وتنسيق التدرج الهرمي بنجاح");
   };
 
   // Merge Categories
@@ -161,39 +161,32 @@ export function CategoriesPage() {
   return (
     <PageShell>
       <div className="max-w-7xl mx-auto px-4 py-8 space-y-8" dir="rtl">
-        {/* Header Hero Banner */}
-        <div className="bg-gradient-to-br from-brand-dark via-slate-900 to-brand-primary/90 text-white rounded-3xl p-6 md:p-10 shadow-2xl border border-brand-accent/20 flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
-          <div className="absolute -top-12 -left-12 w-48 h-48 bg-brand-accent/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="space-y-3 text-center md:text-start relative z-10 max-w-2xl">
-            <span className="inline-flex items-center gap-1.5 bg-brand-accent/20 text-brand-accent border border-brand-accent/30 px-3.5 py-1 rounded-full text-xs font-black">
+        {/* Modern Clean Header */}
+        <div className="bg-brand-dark text-white rounded-2xl p-6 md:p-8 shadow-md border border-brand-accent/20 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="space-y-1 text-center md:text-start">
+            <span className="inline-flex items-center gap-1.5 text-brand-accent text-xs font-black">
               <FolderTree className="w-4 h-4" />
-              هيكل الأقسام الهرمي متعدد المستويات
+              أقسام المتجر
             </span>
-            <h1 className="text-2xl md:text-4xl font-black leading-tight">
-              تصفح وإدارة كافة أقسام وتصنيفات متجر بيتك
-            </h1>
-            <p className="text-xs md:text-sm text-slate-300 leading-relaxed">
-              نظام هرمي مرن وغير محدود يتفرع من الأقسام الرئيسية إلى التصنيفات الفرعية والدقيقة
-              لسهولة وصول المشتري للمنتج المطلوبة.
-            </p>
+            <h1 className="text-2xl md:text-3xl font-black">الأقسام والتصنيفات</h1>
           </div>
 
-          <div className="flex flex-wrap items-center justify-center gap-3 relative z-10 shrink-0">
-            {isSeller && (
+          <div className="flex flex-wrap items-center justify-center gap-3 shrink-0">
+            {canManage && (
               <button
                 onClick={() => {
                   setNewCatParentId(selectedCatId || "");
                   setIsAddModalOpen(true);
                 }}
-                className="bg-brand-accent text-brand-dark font-black px-5 py-3 rounded-2xl text-xs hover:bg-white transition shadow-lg flex items-center gap-2 cursor-pointer"
+                className="bg-brand-accent text-brand-dark font-black px-4 py-2.5 rounded-xl text-xs hover:bg-white transition shadow-xs flex items-center gap-2 cursor-pointer"
               >
-                <Plus className="w-4 h-4" /> إضافة قسم أو فرع جديد
+                <Plus className="w-4 h-4" /> إضافة قسم جديد
               </button>
             )}
 
             <Link
               to="/products"
-              className="bg-white/10 hover:bg-white/20 text-white font-black px-5 py-3 rounded-2xl text-xs transition border border-white/20 flex items-center gap-2"
+              className="bg-white/10 hover:bg-white/20 text-white font-bold px-4 py-2.5 rounded-xl text-xs transition border border-white/20 flex items-center gap-2"
             >
               استعراض المنتجات <ArrowRight className="w-4 h-4 rotate-180" />
             </Link>
@@ -371,7 +364,7 @@ export function CategoriesPage() {
                           </div>
                         </div>
 
-                        {isAdmin && (
+                        {canManage && (
                           <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition">
                             <button
                               onClick={() => {

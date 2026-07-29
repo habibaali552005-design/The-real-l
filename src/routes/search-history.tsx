@@ -34,10 +34,8 @@ export function SearchHistoryPage() {
   };
 
   const handleClearAll = () => {
-    if (confirm("هل أنت تأكد من مسح كافة سجلات البحث السابقة؟")) {
-      MarketplaceStore.clearSearchHistory();
-      toast.success("تم مسح سجل البحث كاملاً بنجاح");
-    }
+    MarketplaceStore.clearSearchHistory();
+    toast.success("تم مسح سجل البحث كاملاً بنجاح");
   };
 
   return (

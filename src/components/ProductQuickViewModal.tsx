@@ -56,6 +56,7 @@ export function ProductQuickViewModal({ product, onClose }: ProductQuickViewModa
   const [quantity, setQuantity] = useState(1);
   const [selectedColor, setSelectedColor] = useState<string | null>(null);
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
+  const [selectedPattern, setSelectedPattern] = useState<string | null>(null);
   const [isWishlisted, setIsWishlisted] = useState(false);
 
   // Real Reviews state (no fake mock data)
@@ -110,6 +111,28 @@ export function ProductQuickViewModal({ product, onClose }: ProductQuickViewModa
     setZoomPos({ x, y });
   };
 
+  // Derived options (from product object or metadata added by seller)
+  const colorOptions: string[] =
+    product.colors && product.colors.length > 0
+      ? product.colors
+      : productMeta.colors && productMeta.colors.length > 0
+        ? productMeta.colors
+        : [];
+
+  const sizeOptions: string[] =
+    product.sizes && product.sizes.length > 0
+      ? product.sizes
+      : productMeta.sizes && productMeta.sizes.length > 0
+        ? productMeta.sizes
+        : [];
+
+  const patternOptions: string[] =
+    product.patterns && product.patterns.length > 0
+      ? product.patterns
+      : productMeta.patterns && productMeta.patterns.length > 0
+        ? productMeta.patterns
+        : [];
+
   const handleColorSelect = (col: string) => {
     const isSelected = selectedColor === col;
     const nextColor = isSelected ? null : col;
@@ -126,12 +149,16 @@ export function ProductQuickViewModal({ product, onClose }: ProductQuickViewModa
   };
 
   const validateVariantSelections = () => {
-    if (product.colors && product.colors.length > 0 && !selectedColor) {
-      toast.error("يرجى تحديد اللون المطلوب أولاً من الخيارات قبل الإضافة!");
+    if (colorOptions.length > 0 && !selectedColor) {
+      toast.error("يرجى تحديد اللون المطلوب بالضغط عليه لتأكيد اختيارك!");
       return false;
     }
-    if (product.sizes && product.sizes.length > 0 && !selectedSize) {
-      toast.error("يرجى تحديد المقاس المطلوب أولاً من الخيارات قبل الإضافة!");
+    if (sizeOptions.length > 0 && !selectedSize) {
+      toast.error("يرجى تحديد المقاس/الأبعاد المطلوبة بالضغط عليها لتأكيد اختيارك!");
+      return false;
+    }
+    if (patternOptions.length > 0 && !selectedPattern) {
+      toast.error("يرجى تحديد النقاش/التصميم المطلوب بالضغط عليه لتأكيد اختيارك!");
       return false;
     }
     return true;
@@ -140,13 +167,24 @@ export function ProductQuickViewModal({ product, onClose }: ProductQuickViewModa
   const handleAddToCart = () => {
     if (!validateVariantSelections()) return;
 
+    const variantLabel = [
+      selectedColor ? `اللون: ${selectedColor}` : null,
+      selectedSize ? `المقاس: ${selectedSize}` : null,
+      selectedPattern ? `النقش: ${selectedPattern}` : null,
+    ]
+      .filter(Boolean)
+      .join(" - ");
+
+    const variantKey = [product.id, selectedColor, selectedSize, selectedPattern]
+      .filter(Boolean)
+      .join("-");
+
+    const itemTitle = variantLabel ? `${product.name} (${variantLabel})` : product.name;
+
     for (let i = 0; i < quantity; i++) {
       add({
-        id: product.id,
-        name:
-          product.name +
-          (selectedColor ? ` (${selectedColor})` : "") +
-          (selectedSize ? ` - ${selectedSize}` : ""),
+        id: variantKey,
+        name: itemTitle,
         price: Number(product.price),
         image_url: currentImage,
       });
@@ -184,10 +222,14 @@ export function ProductQuickViewModal({ product, onClose }: ProductQuickViewModa
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-brand-dark/80 backdrop-blur-sm flex items-center justify-center p-3 md:p-6 overflow-y-auto animate-fadeIn"
+      className="fixed inset-0 z-50 bg-brand-dark/80 backdrop-blur-sm flex items-center justify-center p-3 md:p-6 overflow-y-auto animate-fadeIn cursor-pointer"
       dir="rtl"
+      onClick={onClose}
     >
-      <div className="bg-card w-full max-w-5xl rounded-3xl p-5 md:p-8 relative border border-brand-dark/10 shadow-2xl space-y-6 max-h-[92vh] overflow-y-auto">
+      <div
+        className="bg-card w-full max-w-5xl rounded-3xl p-5 md:p-8 relative border border-brand-dark/10 shadow-2xl space-y-6 max-h-[92vh] overflow-y-auto cursor-default"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Top Header Bar */}
         <div className="flex items-center justify-between border-b border-brand-dark/5 pb-3">
           <div className="flex items-center gap-2">
@@ -424,6 +466,21 @@ export function ProductQuickViewModal({ product, onClose }: ProductQuickViewModa
                 {product.name}
               </h2>
 
+              {(product.brand || product.seller_name) && (
+                <div className="mt-2 flex items-center gap-2 flex-wrap text-xs font-bold">
+                  {product.brand && (
+                    <span className="text-brand-dark bg-secondary px-2.5 py-1 rounded-lg border border-brand-dark/10">
+                      الماركة: {product.brand}
+                    </span>
+                  )}
+                  {product.seller_name && (
+                    <span className="text-brand-dark bg-secondary px-2.5 py-1 rounded-lg border border-brand-dark/10">
+                      المتجر: {product.seller_name}
+                    </span>
+                  )}
+                </div>
+              )}
+
               <div className="mt-3 flex items-baseline gap-3">
                 <span className="text-3xl font-black text-brand-primary">
                   {formatEGP(Number(product.price))}
@@ -465,23 +522,23 @@ export function ProductQuickViewModal({ product, onClose }: ProductQuickViewModa
               </div>
             )}
 
-            {/* Amazon Color Swatches Selector with Mandatory Manual Choice */}
-            {product.colors && product.colors.length > 0 && (
+            {/* Color Swatches Selector (Only if seller added colors) */}
+            {colorOptions.length > 0 && (
               <div className="space-y-2 border-t border-brand-dark/5 pt-3">
                 <div className="flex justify-between items-center">
                   <label className="text-xs font-bold text-brand-dark">
                     اختر اللون المطلوب:{" "}
                     {selectedColor ? (
-                      <span className="text-brand-primary font-black">({selectedColor})</span>
+                      <span className="text-emerald-700 font-black">✔ ({selectedColor})</span>
                     ) : (
-                      <span className="text-destructive font-semibold text-[11px]">
-                        * يلزم الاختيار
+                      <span className="text-rose-600 font-bold text-[11px] bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
+                        * تحديد إجباري (اضغط للاختيار)
                       </span>
                     )}
                   </label>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {product.colors.map((col) => {
+                  {colorOptions.map((col) => {
                     const hex = colorMap[col] || "#D1D5DB";
                     const isSelected = selectedColor === col;
                     return (
@@ -491,8 +548,8 @@ export function ProductQuickViewModal({ product, onClose }: ProductQuickViewModa
                         onClick={() => handleColorSelect(col)}
                         className={`px-3.5 py-2 rounded-2xl text-xs font-bold flex items-center gap-2 border transition cursor-pointer ${
                           isSelected
-                            ? "border-brand-primary bg-brand-primary/10 text-brand-primary font-black shadow-xs ring-2 ring-brand-primary/20"
-                            : "border-brand-dark/10 hover:border-brand-dark/30 bg-card text-brand-dark"
+                            ? "border-emerald-600 bg-emerald-50 text-emerald-900 font-black shadow-xs ring-2 ring-emerald-500/30"
+                            : "border-brand-dark/15 hover:border-brand-dark/40 bg-card text-brand-dark hover:bg-secondary/40"
                         }`}
                       >
                         <span
@@ -500,7 +557,7 @@ export function ProductQuickViewModal({ product, onClose }: ProductQuickViewModa
                           style={{ backgroundColor: hex }}
                         />
                         <span>{col}</span>
-                        {isSelected && <Check className="w-3.5 h-3.5" />}
+                        {isSelected && <Check className="w-3.5 h-3.5 text-emerald-700" />}
                       </button>
                     );
                   })}
@@ -508,36 +565,75 @@ export function ProductQuickViewModal({ product, onClose }: ProductQuickViewModa
               </div>
             )}
 
-            {/* Amazon Size Chips Selector with Mandatory Manual Choice */}
-            {product.sizes && product.sizes.length > 0 && (
+            {/* Size Chips Selector (Only if seller added sizes) */}
+            {sizeOptions.length > 0 && (
               <div className="space-y-2 border-t border-brand-dark/5 pt-3">
                 <div className="flex justify-between items-center">
                   <label className="text-xs font-bold text-brand-dark">
                     اختر المقاس / الأبعاد المطلوبة:{" "}
                     {selectedSize ? (
-                      <span className="text-brand-primary font-black">({selectedSize})</span>
+                      <span className="text-emerald-700 font-black">✔ ({selectedSize})</span>
                     ) : (
-                      <span className="text-destructive font-semibold text-[11px]">
-                        * يلزم الاختيار
+                      <span className="text-rose-600 font-bold text-[11px] bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
+                        * تحديد إجباري (اضغط للاختيار)
                       </span>
                     )}
                   </label>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {product.sizes.map((sz) => {
+                  {sizeOptions.map((sz) => {
                     const isSelected = selectedSize === sz;
                     return (
                       <button
                         key={sz}
                         type="button"
                         onClick={() => setSelectedSize(isSelected ? null : sz)}
-                        className={`px-4 py-2 rounded-2xl text-xs font-bold border transition cursor-pointer ${
+                        className={`px-4 py-2 rounded-2xl text-xs font-bold flex items-center gap-1.5 border transition cursor-pointer ${
                           isSelected
-                            ? "border-brand-primary bg-brand-primary text-brand-bg shadow-sm"
-                            : "border-brand-dark/10 hover:border-brand-dark/30 bg-card text-brand-dark"
+                            ? "border-emerald-600 bg-emerald-700 text-white font-black shadow-sm"
+                            : "border-brand-dark/15 hover:border-brand-dark/40 bg-card text-brand-dark hover:bg-secondary/40"
                         }`}
                       >
-                        {sz}
+                        <span>{sz}</span>
+                        {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Pattern / Design Selector (Only if seller added patterns) */}
+            {patternOptions.length > 0 && (
+              <div className="space-y-2 border-t border-brand-dark/5 pt-3">
+                <div className="flex justify-between items-center">
+                  <label className="text-xs font-bold text-brand-dark">
+                    اختر النقاش / التصميم المطلوب:{" "}
+                    {selectedPattern ? (
+                      <span className="text-emerald-700 font-black">✔ ({selectedPattern})</span>
+                    ) : (
+                      <span className="text-rose-600 font-bold text-[11px] bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
+                        * تحديد إجباري (اضغط للاختيار)
+                      </span>
+                    )}
+                  </label>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {patternOptions.map((pt) => {
+                    const isSelected = selectedPattern === pt;
+                    return (
+                      <button
+                        key={pt}
+                        type="button"
+                        onClick={() => setSelectedPattern(isSelected ? null : pt)}
+                        className={`px-4 py-2 rounded-2xl text-xs font-bold flex items-center gap-1.5 border transition cursor-pointer ${
+                          isSelected
+                            ? "border-emerald-600 bg-emerald-700 text-white font-black shadow-sm"
+                            : "border-brand-dark/15 hover:border-brand-dark/40 bg-card text-brand-dark hover:bg-secondary/40"
+                        }`}
+                      >
+                        <span>{pt}</span>
+                        {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
                       </button>
                     );
                   })}

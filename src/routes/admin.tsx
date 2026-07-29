@@ -49,8 +49,6 @@ import { RoleSelector } from "@/components/admin/RoleSelector";
 import { SuperAdminDashboard } from "@/components/admin/SuperAdminDashboard";
 import { SellerDashboard } from "@/components/admin/SellerDashboard";
 import { VisitorDashboard } from "@/components/admin/VisitorDashboard";
-import { AIImageStudio } from "@/components/admin/AIImageStudio";
-import { AIBatchImageEditor } from "@/components/admin/AIBatchImageEditor";
 import { MultiImageUploader, GalleryAsset } from "@/components/admin/MultiImageUploader";
 import { MarketplaceStore } from "@/lib/marketplaceStore";
 import { InAppChatAndTeams } from "@/components/admin/InAppChatAndTeams";
@@ -128,6 +126,8 @@ function AdminPage() {
   const navigate = useNavigate();
   const [checking, setChecking] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isRealAdmin, setIsRealAdmin] = useState(false);
+  const [isRealSeller, setIsRealSeller] = useState(false);
   const [simulationRole, setSimulationRole] = useState<
     "super_admin" | "seller" | "customer" | "visitor"
   >(MarketplaceStore.getSimulationRole());
@@ -170,6 +170,7 @@ function AdminPage() {
         .eq("user_id", user.id);
 
       const dbAdmin = roles?.some((r) => r.role === "admin") ?? false;
+      const dbSeller = roles?.some((r) => r.role === "seller" || r.role === "vendor") ?? false;
       const isSuper = isSuperAdminEmail || dbAdmin;
 
       if (isSuperAdminEmail) {
@@ -178,16 +179,15 @@ function AdminPage() {
             console.log("Successfully ensured real admin role in Supabase database.");
           })
           .catch((err) => {
-            console.warn(
-              "Note: Could not automatically sync real admin role in Supabase (normal if keys are not fully configured yet):",
-              err,
-            );
+            console.warn("Note: Could not automatically sync real admin role in Supabase:", err);
           });
       }
 
-      setIsAdmin(true); // Allow all authenticated users to enter the Admin area
+      setIsRealAdmin(isSuper);
+      setIsAdmin(isSuper);
 
       if (isSuper) {
+        setIsRealSeller(true);
         setSimulationRole("super_admin");
         setActiveSellerId("seller-habiba");
         MarketplaceStore.setSimulatedSellerId("seller-habiba");
@@ -196,14 +196,18 @@ function AdminPage() {
         // 2. Check if a registered Seller
         const sellers = MarketplaceStore.getSellers();
         const matchedSeller = sellers.find((s) => s.email?.toLowerCase() === lowercaseEmail);
-        if (matchedSeller) {
+        if (matchedSeller || dbSeller) {
+          setIsRealSeller(true);
           setSimulationRole("seller");
-          setActiveSellerId(matchedSeller.id);
-          MarketplaceStore.setSimulatedSellerId(matchedSeller.id);
+          const sellerId = matchedSeller?.id || "seller-habiba";
+          setActiveSellerId(sellerId);
+          MarketplaceStore.setSimulatedSellerId(sellerId);
           setTab("seller_dashboard");
         } else {
-          // 3. Otherwise, set as Visitor/Customer onboarding
+          // 3. Otherwise, regular user / visitor onboarding
+          setIsRealSeller(false);
           setSimulationRole("visitor");
+          MarketplaceStore.setSimulationRole("visitor");
           setTab("onboarding");
         }
       }
@@ -215,18 +219,47 @@ function AdminPage() {
     };
   }, [navigate]);
 
-  useEffect(() => {
+  const loadProducts = () => {
     supabase
       .from("products")
       .select("*")
       .then(({ data }) => {
-        if (data) setProductsList(data as Product[]);
+        let raw = (data as Product[]) || [];
+        const customMap = MarketplaceStore.getCustomProducts();
+        const existingIds = new Set(raw.map((p) => p.id));
+        raw = raw.map((p) => (customMap[p.id] ? { ...p, ...customMap[p.id] } : p));
+        Object.keys(customMap).forEach((id) => {
+          if (!existingIds.has(id)) {
+            raw.unshift({
+              id,
+              name: "منتج جديد",
+              price: 100,
+              in_stock: true,
+              created_at: new Date().toISOString(),
+              ...customMap[id],
+            } as Product);
+          }
+        });
+        setProductsList(MarketplaceStore.filterDeletedProducts(raw));
       });
-  }, [aiStudioProduct, openBatchEditor]);
+  };
+
+  useEffect(() => {
+    loadProducts();
+    window.addEventListener("beitak-products-updated", loadProducts);
+    window.addEventListener("storage", loadProducts);
+    return () => {
+      window.removeEventListener("beitak-products-updated", loadProducts);
+      window.removeEventListener("storage", loadProducts);
+    };
+  }, []);
 
   const logout = async () => {
+    MarketplaceStore.setSimulationRole("visitor");
+    MarketplaceStore.setSimulatedSellerId("");
     await supabase.auth.signOut();
-    navigate({ to: "/" });
+    toast.success("تم تسجيل الخروج بنجاح");
+    navigate({ to: "/auth" });
   };
 
   if (checking) {
@@ -313,6 +346,8 @@ function AdminPage() {
       <div className="px-4 pt-4">
         <RoleSelector
           currentRole={simulationRole}
+          isRealAdmin={isRealAdmin}
+          isRealSeller={isRealSeller}
           onChangeRole={(role) => {
             setSimulationRole(role);
             if (role === "super_admin") setTab("marketplace");
@@ -366,17 +401,16 @@ function AdminPage() {
         </div>
       </div>
 
-      {tab === "marketplace" && <SuperAdminDashboard />}
-      {tab === "seller_dashboard" && (
-        <SellerDashboard
-          sellerId={activeSellerId}
-          products={productsList.filter(
-            (p) => MultiVendorStorage.getProductSeller(p.id) === activeSellerId,
-          )}
-          onOpenAIStudio={(p) => setAiStudioProduct(p)}
-          onOpenBatchEditor={() => setOpenBatchEditor(true)}
-        />
-      )}
+      {tab === "marketplace" && simulationRole === "super_admin" && <SuperAdminDashboard />}
+      {tab === "seller_dashboard" &&
+        (simulationRole === "seller" || simulationRole === "super_admin") && (
+          <SellerDashboard
+            sellerId={activeSellerId}
+            products={productsList.filter(
+              (p) => MultiVendorStorage.getProductSeller(p.id) === activeSellerId,
+            )}
+          />
+        )}
       {tab === "onboarding" && <VisitorDashboard />}
       {tab === "customer_dashboard" && (
         <div className="px-4 py-8 text-center space-y-4">
@@ -397,47 +431,33 @@ function AdminPage() {
         </div>
       )}
 
-      {tab === "products" && (
+      {tab === "products" && (simulationRole === "seller" || simulationRole === "super_admin") && (
         <ProductsAdmin sellerId={activeSellerId} isSeller={simulationRole === "seller"} />
       )}
-      {tab === "orders" && (
+      {tab === "orders" && (simulationRole === "seller" || simulationRole === "super_admin") && (
         <OrdersAdmin sellerId={activeSellerId} isSeller={simulationRole === "seller"} />
       )}
-      {tab === "categories" && <CategoriesAdmin />}
-      {tab === "in_app_chat" && (
-        <InAppChatAndTeams
-          currentUserEmail={userEmail}
-          sellerId={activeSellerId}
-          isSuperAdmin={simulationRole === "super_admin"}
-        />
-      )}
-      {tab === "wallet" && (
+      {tab === "categories" &&
+        (simulationRole === "seller" || simulationRole === "super_admin") && (
+          <CategoriesAdmin isSeller={simulationRole === "seller"} sellerId={activeSellerId} />
+        )}
+      {tab === "in_app_chat" &&
+        (simulationRole === "seller" || simulationRole === "super_admin") && (
+          <InAppChatAndTeams
+            currentUserEmail={userEmail}
+            sellerId={activeSellerId}
+            isSuperAdmin={simulationRole === "super_admin"}
+          />
+        )}
+      {tab === "wallet" && (simulationRole === "seller" || simulationRole === "super_admin") && (
         <SellerWalletView
           sellerId={activeSellerId}
           isSuperAdmin={simulationRole === "super_admin"}
         />
       )}
-      {tab === "messages" && <MessagesAdmin />}
-      {tab === "facebook" && <FacebookAdmin />}
-      {tab === "settings" && <SettingsAdmin />}
-
-      {/* AI Studio Overlay Modal */}
-      {aiStudioProduct && (
-        <AIImageStudio
-          initialImageUrl={aiStudioProduct.image_url || ""}
-          onClose={() => setAiStudioProduct(null)}
-          onSave={handleSaveAIImage}
-        />
-      )}
-
-      {/* AI Batch Editor Modal */}
-      {openBatchEditor && (
-        <AIBatchImageEditor
-          products={productsList}
-          onClose={() => setOpenBatchEditor(false)}
-          onSaveBatch={handleSaveBatchImages}
-        />
-      )}
+      {tab === "messages" && simulationRole === "super_admin" && <MessagesAdmin />}
+      {tab === "facebook" && simulationRole === "super_admin" && <FacebookAdmin />}
+      {tab === "settings" && simulationRole === "super_admin" && <SettingsAdmin />}
     </PageShell>
   );
 }
@@ -457,6 +477,24 @@ function ProductsAdmin({ sellerId, isSeller }: { sellerId?: string; isSeller?: b
     ]);
 
     let productList = (prods as Product[]) ?? [];
+    const customMap = MarketplaceStore.getCustomProducts();
+    const existingIds = new Set(productList.map((p) => p.id));
+    productList = productList.map((p) => (customMap[p.id] ? { ...p, ...customMap[p.id] } : p));
+    Object.keys(customMap).forEach((id) => {
+      if (!existingIds.has(id)) {
+        productList.unshift({
+          id,
+          name: "منتج جديد",
+          price: 100,
+          in_stock: true,
+          created_at: new Date().toISOString(),
+          ...customMap[id],
+        } as Product);
+      }
+    });
+
+    productList = MarketplaceStore.filterDeletedProducts(productList);
+
     if (isSeller && sellerId) {
       productList = productList.filter(
         (p) => MultiVendorStorage.getProductSeller(p.id) === sellerId,
@@ -481,13 +519,22 @@ function ProductsAdmin({ sellerId, isSeller }: { sellerId?: string; isSeller?: b
 
   useEffect(() => {
     load();
-  }, []);
+    window.addEventListener("beitak-products-updated", load);
+    window.addEventListener("storage", load);
+    return () => {
+      window.removeEventListener("beitak-products-updated", load);
+      window.removeEventListener("storage", load);
+    };
+  }, [isSeller, sellerId]);
 
   const del = async (id: string) => {
-    if (!confirm("متأكد إنك عايز تحذف المنتج دا؟")) return;
-    const { error } = await supabase.from("products").delete().eq("id", id);
-    if (error) return toast.error("فشل الحذف");
-    toast.success("تم الحذف");
+    try {
+      await supabase.from("products").delete().eq("id", id);
+    } catch {
+      // Fallback
+    }
+    MarketplaceStore.deleteProduct(id);
+    toast.success("تم حذف المنتج بنجاح");
     load();
   };
 
@@ -585,6 +632,7 @@ function ProductEditor({
     deliveryFee: meta?.deliveryFee?.toString() ?? "",
     colors: (meta?.colors || product?.colors || []).join(", "),
     sizes: (meta?.sizes || product?.sizes || []).join(", "),
+    patterns: (meta?.patterns || product?.patterns || []).join(", "),
     area_sqm: product?.area_sqm?.toString() ?? meta?.specifications?.area_sqm ?? "",
     capacity_weight:
       product?.capacity_weight?.toString() ?? meta?.specifications?.capacity_weight ?? "",
@@ -647,6 +695,10 @@ function ProductEditor({
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
+    const patternsArray = form.patterns
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean);
 
     const payload = {
       id: prodId,
@@ -661,6 +713,7 @@ function ProductEditor({
       for_women_only: form.for_women_only,
       colors: colorsArray.length > 0 ? colorsArray : undefined,
       sizes: sizesArray.length > 0 ? sizesArray : undefined,
+      patterns: patternsArray.length > 0 ? patternsArray : undefined,
       area_sqm: form.area_sqm.trim() || undefined,
       capacity_weight: form.capacity_weight.trim() || undefined,
     };
@@ -690,6 +743,7 @@ function ProductEditor({
       images: imagesToSave,
       colors: colorsArray.length > 0 ? colorsArray : undefined,
       sizes: sizesArray.length > 0 ? sizesArray : undefined,
+      patterns: patternsArray.length > 0 ? patternsArray : undefined,
       deliveryFee: parseFloat(form.deliveryFee) || undefined,
       specifications: {
         area_sqm: form.area_sqm.trim(),
@@ -765,8 +819,8 @@ function ProductEditor({
           </AdminField>
         </div>
 
-        {/* Colors and Sizes Inputs */}
-        <div className="grid grid-cols-2 gap-3">
+        {/* Colors, Sizes and Patterns Inputs */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <AdminField label="الألوان المتاحة (افصل بفاصلة)">
             <input
               type="text"
@@ -779,9 +833,18 @@ function ProductEditor({
           <AdminField label="المقاسات والأبعاد (أرقام أو أحرف)">
             <input
               type="text"
-              placeholder="38, 39, 40, 41, 42 أو S, M, L, XL أو 120x80 سم"
+              placeholder="38, 39, 40, 41, 42 أو 120x80 سم"
               value={form.sizes}
               onChange={(e) => setForm({ ...form, sizes: e.target.value })}
+              className="admin-input"
+            />
+          </AdminField>
+          <AdminField label="النقشات والزخارف (النقاش - افصل بفاصلة)">
+            <input
+              type="text"
+              placeholder="سادة, مودرن, حفر ليزر, كلاسيك"
+              value={form.patterns}
+              onChange={(e) => setForm({ ...form, patterns: e.target.value })}
               className="admin-input"
             />
           </AdminField>
@@ -902,11 +965,13 @@ function AdminField({ label, children }: { label: string; children: React.ReactN
 }
 
 // ---------- Categories ----------
-function CategoriesAdmin() {
+function CategoriesAdmin({ isSeller, sellerId }: { isSeller?: boolean; sellerId?: string }) {
   const [cats, setCats] = useState<Category[]>([]);
   const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
   const [loading, setLoading] = useState(true);
   const [selectedCatForIcon, setSelectedCatForIcon] = useState<Category | null>(null);
+  const [catRequests, setCatRequests] = useState(() => MarketplaceStore.getCategoryRequests());
 
   const load = async () => {
     setLoading(true);
@@ -922,6 +987,7 @@ function CategoriesAdmin() {
       ];
     }
     setCats(categoryList);
+    setCatRequests(MarketplaceStore.getCategoryRequests());
     setLoading(false);
   };
 
@@ -932,6 +998,25 @@ function CategoriesAdmin() {
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+
+    if (isSeller) {
+      // Seller sends a category request to Super Admin
+      const activeSeller = MarketplaceStore.getSellers().find((s) => s.id === sellerId);
+      MarketplaceStore.addCategoryRequest({
+        sellerId: sellerId || "seller-habiba",
+        sellerName: activeSeller?.store_name || "متجر التاجر",
+        categoryName: name.trim(),
+        description: desc.trim() || "طلب إضافة قسم مخصص جديد للمتجر",
+        targetSection: "general",
+      });
+      setName("");
+      setDesc("");
+      setCatRequests(MarketplaceStore.getCategoryRequests());
+      toast.success("تم إرسال طلب إضافة القسم للسوبر أدمن للاعتماد بنجاح!");
+      return;
+    }
+
+    // Super Admin adds category directly
     const nextOrder = (cats[cats.length - 1]?.sort_order ?? 0) + 1;
     const { data, error } = await supabase
       .from("categories")
@@ -939,15 +1024,31 @@ function CategoriesAdmin() {
       .select();
     if (error) return toast.error("فشل الإضافة: " + error.message);
 
-    // Automatically generate and map an icon on creation
     const addedCat = data?.[0] || { id: `cat-temp-${Date.now()}` };
     const autoKey = getAutoIconKey(name);
     saveCustomIconMapping(addedCat.id, autoKey);
     saveCustomIconMapping(name.trim(), autoKey);
 
     setName("");
-    toast.success("تم إضافة القسم وتخصيص أيقونة تلقائياً له!");
+    setDesc("");
+    toast.success("تم إضافة القسم للكتالوج وتخصيص أيقونة تلقائياً له!");
     load();
+  };
+
+  const handleApproveRequest = async (reqId: string, categoryName: string) => {
+    MarketplaceStore.updateCategoryRequestStatus(reqId, "approved");
+    const nextOrder = (cats[cats.length - 1]?.sort_order ?? 0) + 1;
+    await supabase.from("categories").insert({ name: categoryName, sort_order: nextOrder });
+    const autoKey = getAutoIconKey(categoryName);
+    saveCustomIconMapping(categoryName, autoKey);
+    toast.success(`تم قبول واعتماد قسم "${categoryName}" وإضافته للماركت بليس!`);
+    load();
+  };
+
+  const handleRejectRequest = (reqId: string) => {
+    MarketplaceStore.updateCategoryRequestStatus(reqId, "rejected");
+    toast.error("تم رفض طلب إضافة القسم");
+    setCatRequests(MarketplaceStore.getCategoryRequests());
   };
 
   const rename = async (c: Category) => {
@@ -959,10 +1060,9 @@ function CategoriesAdmin() {
   };
 
   const del = async (c: Category) => {
-    if (!confirm(`حذف قسم "${c.name}"؟ لن يتم حذف منتجاته لكن هيبقوا بدون قسم فعال.`)) return;
     const { error } = await supabase.from("categories").delete().eq("id", c.id);
     if (error) return toast.error("فشل الحذف");
-    toast.success("تم الحذف");
+    toast.success("تم حذف القسم بنجاح");
     load();
   };
 
@@ -971,25 +1071,100 @@ function CategoriesAdmin() {
     saveCustomIconMapping(c.name, iconKey);
     toast.success(`تم تحديث أيقونة القسم إلى: ${iconKey}`);
     setSelectedCatForIcon(null);
-    load(); // Reload or force component update
+    load();
   };
 
   return (
-    <div className="px-4 space-y-4">
-      <form onSubmit={add} className="flex gap-2">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="اسم قسم جديد"
-          className="flex-1 bg-card border border-brand-dark/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-brand-accent"
-        />
-        <button
-          type="submit"
-          className="bg-brand-accent text-brand-dark font-bold px-4 rounded-xl flex items-center gap-1 hover:bg-amber-500 transition"
-        >
-          <Plus className="w-4 h-4" /> إضافة
-        </button>
-      </form>
+    <div className="px-4 space-y-6" dir="rtl">
+      {/* Category Submission Form */}
+      <div className="bg-card border border-brand-dark/10 p-5 rounded-2xl space-y-3">
+        <h3 className="font-extrabold text-sm text-brand-dark">
+          {isSeller ? "إرسال طلب إضافة قسم جديد للسوبر أدمن" : "إضافة قسم رئيسي جديد للماركت بليس"}
+        </h3>
+        <form onSubmit={add} className="flex flex-col sm:flex-row gap-2">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="اسم القسم الجديد (مثال: مفارش وأغطية فاخرة)"
+            className="flex-1 bg-background border border-brand-dark/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-brand-accent"
+          />
+          {isSeller && (
+            <input
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+              placeholder="وصف مختصر للقسم ومبرر الإضافة"
+              className="flex-1 bg-background border border-brand-dark/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-brand-accent"
+            />
+          )}
+          <button
+            type="submit"
+            className="bg-brand-accent text-brand-dark font-black px-5 py-3 rounded-xl flex items-center justify-center gap-1.5 hover:bg-amber-500 transition cursor-pointer shrink-0"
+          >
+            <Plus className="w-4 h-4" /> {isSeller ? "إرسال الطلب" : "إضافة القسم"}
+          </button>
+        </form>
+      </div>
+
+      {/* Pending Category Requests (Visible to Super Admin or Seller) */}
+      {catRequests.length > 0 && (
+        <div className="bg-amber-500/5 border border-amber-500/20 p-4 rounded-2xl space-y-3">
+          <h4 className="font-extrabold text-xs text-amber-900 flex items-center gap-2">
+            <Tags className="w-4 h-4 text-amber-600" />
+            طلبات الأقسام المرسلة من التجار للإعتماد ({catRequests.length})
+          </h4>
+          <div className="space-y-2">
+            {catRequests.map((req) => (
+              <div
+                key={req.id}
+                className="bg-card p-3 rounded-xl border border-brand-dark/5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+              >
+                <div>
+                  <span className="font-black text-brand-dark">{req.categoryName}</span>
+                  <span className="text-[11px] text-muted-foreground mr-2">
+                    (من: {req.sellerName})
+                  </span>
+                  {req.description && (
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{req.description}</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      req.status === "approved"
+                        ? "bg-emerald-100 text-emerald-800"
+                        : req.status === "rejected"
+                          ? "bg-rose-100 text-rose-800"
+                          : "bg-amber-100 text-amber-800"
+                    }`}
+                  >
+                    {req.status === "approved"
+                      ? "معتمد"
+                      : req.status === "rejected"
+                        ? "مرفوض"
+                        : "قيد المراجعة"}
+                  </span>
+                  {!isSeller && req.status === "pending" && (
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => handleApproveRequest(req.id, req.categoryName)}
+                        className="bg-emerald-600 text-white font-bold px-2.5 py-1 rounded-lg hover:bg-emerald-700 text-[11px] cursor-pointer"
+                      >
+                        قبول وإضافة
+                      </button>
+                      <button
+                        onClick={() => handleRejectRequest(req.id)}
+                        className="bg-rose-600 text-white font-bold px-2.5 py-1 rounded-lg hover:bg-rose-700 text-[11px] cursor-pointer"
+                      >
+                        رفض
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Icon library selector */}
       {selectedCatForIcon && (
@@ -1015,7 +1190,7 @@ function CategoriesAdmin() {
                   type="button"
                   title={iconKey}
                   onClick={() => selectIcon(selectedCatForIcon, iconKey)}
-                  className="w-10 h-10 rounded-lg flex items-center justify-center hover:bg-brand-accent/20 border border-brand-dark/5 text-brand-dark transition bg-card"
+                  className="w-10 h-10 rounded-lg flex items-center justify-center hover:bg-brand-accent/20 border border-brand-dark/5 text-brand-dark transition bg-card cursor-pointer"
                 >
                   <IconComponent className="w-5 h-5" />
                 </button>
@@ -1039,33 +1214,35 @@ function CategoriesAdmin() {
                 <button
                   type="button"
                   title="تغيير الأيقونة"
-                  onClick={() => setSelectedCatForIcon(c)}
+                  onClick={() => !isSeller && setSelectedCatForIcon(c)}
                   className="w-10 h-10 rounded-xl bg-brand-primary/10 text-brand-primary hover:bg-brand-accent hover:text-brand-dark flex items-center justify-center transition"
                 >
                   <IconComponent className="w-5 h-5" />
                 </button>
                 <span className="font-bold text-sm">{c.name}</span>
               </div>
-              <div className="flex gap-1">
-                <button
-                  onClick={() => setSelectedCatForIcon(c)}
-                  className="text-xs text-brand-primary font-bold px-2 py-1 rounded hover:bg-brand-primary/5 transition"
-                >
-                  تغيير الأيقونة
-                </button>
-                <button
-                  onClick={() => rename(c)}
-                  className="w-8 h-8 rounded-lg bg-secondary grid place-items-center hover:bg-secondary/80 transition"
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => del(c)}
-                  className="w-8 h-8 rounded-lg bg-destructive/10 text-destructive grid place-items-center hover:bg-destructive/20 transition"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
+              {!isSeller && (
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => setSelectedCatForIcon(c)}
+                    className="text-xs text-brand-primary font-bold px-2 py-1 rounded hover:bg-brand-primary/5 transition"
+                  >
+                    تغيير الأيقونة
+                  </button>
+                  <button
+                    onClick={() => rename(c)}
+                    className="w-8 h-8 rounded-lg bg-secondary grid place-items-center hover:bg-secondary/80 transition"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => del(c)}
+                    className="w-8 h-8 rounded-lg bg-destructive/10 text-destructive grid place-items-center hover:bg-destructive/20 transition"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
             </div>
           );
         })}
@@ -1099,8 +1276,8 @@ function MessagesAdmin() {
   };
 
   const del = async (id: string) => {
-    if (!confirm("حذف الرسالة؟")) return;
     await supabase.from("contact_messages").delete().eq("id", id);
+    toast.success("تم حذف الرسالة بنجاح");
     load();
   };
 
@@ -1228,7 +1405,17 @@ function SettingsAdmin() {
 
   const upd = <K extends keyof SiteSettings>(k: K, v: SiteSettings[K]) => setS({ ...s, [k]: v });
   const updTheme = <K extends keyof WebsiteThemeSettings>(k: K, v: WebsiteThemeSettings[K]) => {
-    const updated = { ...themeConf, [k]: v };
+    const updated = {
+      ...themeConf,
+      [k]: v,
+      ...(k === "brandPrimary" ? { homepagePrimary: v as string } : {}),
+      ...(k === "brandAccent" ? { homepageAccent: v as string } : {}),
+      ...(k === "homepagePrimary" ? { brandPrimary: v as string } : {}),
+      ...(k === "homepageAccent" ? { brandAccent: v as string } : {}),
+      ...(k === "homepageBg" ? { brandBg: v as string } : {}),
+      ...(k === "homepageText" ? { brandDark: v as string } : {}),
+    };
+
     setThemeConf(updated);
     // Preview immediately!
     MarketplaceStore.saveSiteThemeSettings(updated);
@@ -1239,23 +1426,9 @@ function SettingsAdmin() {
     <form onSubmit={save} className="px-4 space-y-4 pb-12">
       {/* Visual Identity Section */}
       <div className="bg-card border border-brand-dark/5 p-4 rounded-2xl space-y-3">
-        <div className="flex items-center justify-between border-b border-brand-dark/5 pb-2 mb-2">
-          <h3 className="text-xs font-bold text-brand-primary flex items-center gap-1.5">
-            🎨 التحكم الكامل بالهوية والألوان والخطوط (Super Admin)
-          </h3>
-          <button
-            type="button"
-            onClick={() => {
-              const defaults = MarketplaceStore.resetSiteThemeSettings();
-              setThemeConf(defaults);
-              window.dispatchEvent(new Event("beitak-theme-updated"));
-              toast.success("تم إعادة ضبط الألوان للباليتة الأصلية الغنية بنجاح ✓");
-            }}
-            className="text-[10px] bg-brand-bg border border-brand-dark/10 px-2.5 py-1 rounded-lg hover:border-brand-primary text-brand-dark font-bold transition cursor-pointer"
-          >
-            🔄 إعادة ضبط الألوان
-          </button>
-        </div>
+        <h3 className="text-xs font-bold text-brand-primary flex items-center gap-1.5 border-b border-brand-dark/5 pb-2 mb-2">
+          🎨 التحكم الكامل بالهوية والألوان والخطوط (Super Admin)
+        </h3>
 
         <div className="grid grid-cols-2 gap-3">
           <SetField label="قالب الموقع والمظهر">
@@ -1289,16 +1462,13 @@ function SettingsAdmin() {
               <input
                 type="color"
                 value={
-                  themeConf.brandPrimary.startsWith("oklch") ? "#5C4033" : themeConf.brandPrimary
+                  themeConf.brandPrimary.startsWith("oklch") ? "#8C6A5D" : themeConf.brandPrimary
                 }
-                onChange={(e) => {
-                  updTheme("brandPrimary", e.target.value);
-                  updTheme("homepagePrimary", e.target.value);
-                }}
+                onChange={(e) => updTheme("brandPrimary", e.target.value)}
                 className="w-10 h-10 rounded-lg cursor-pointer border-none p-0"
               />
               <span className="text-[10px] font-mono text-muted-foreground">
-                {themeConf.homepagePrimary || themeConf.brandPrimary}
+                {themeConf.brandPrimary}
               </span>
             </div>
           </SetField>
@@ -1308,16 +1478,13 @@ function SettingsAdmin() {
               <input
                 type="color"
                 value={
-                  themeConf.brandAccent.startsWith("oklch") ? "#D2B48C" : themeConf.brandAccent
+                  themeConf.brandAccent.startsWith("oklch") ? "#C5A059" : themeConf.brandAccent
                 }
-                onChange={(e) => {
-                  updTheme("brandAccent", e.target.value);
-                  updTheme("homepageAccent", e.target.value);
-                }}
+                onChange={(e) => updTheme("brandAccent", e.target.value)}
                 className="w-10 h-10 rounded-lg cursor-pointer border-none p-0"
               />
               <span className="text-[10px] font-mono text-muted-foreground">
-                {themeConf.homepageAccent || themeConf.brandAccent}
+                {themeConf.brandAccent}
               </span>
             </div>
           </SetField>
@@ -2045,9 +2212,9 @@ function OrdersAdmin({ sellerId, isSeller }: { sellerId?: string; isSeller?: boo
   };
 
   const del = async (id: string) => {
-    if (!confirm("متأكد إنك عايز تحذف الطلب؟")) return;
     const { error } = await supabase.from("orders").delete().eq("id", id);
     if (error) return toast.error("فشل الحذف");
+    toast.success("تم حذف الطلب بنجاح");
     load();
   };
 
@@ -2356,11 +2523,10 @@ function FacebookAdmin() {
   };
 
   const disconnect = async () => {
-    if (!confirm("متأكد إنك عايزة تفصلي الصفحة؟ (المنتجات المستوردة هتفضل موجودة)")) return;
     setBusy("disconnect");
     try {
       await disconnectFn();
-      toast.success("تم الفصل");
+      toast.success("تم فصل الصفحة بنجاح");
       load();
     } catch (e) {
       toast.error((e as Error).message);

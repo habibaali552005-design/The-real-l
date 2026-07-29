@@ -30,6 +30,7 @@ export interface Product {
   available_governorates?: string[];
   colors?: string[];
   sizes?: string[];
+  patterns?: string[];
   area_sqm?: number | string; // Property or space area in square meters (م²)
   capacity_weight?: number | string; // Weight, load capacity or volume in kilograms (كجم)
   is_best_seller?: boolean; // Flag for Best Sellers section

@@ -93,11 +93,18 @@ export function SellerStorePage() {
     // Load products
     const { data: dbProds } = await supabase.from("products").select("*");
     const customProds = Object.values(MarketplaceStore.getCustomProducts() || {});
-    setProducts([...(dbProds || []), ...customProds]);
+    const combined = [...(dbProds || []), ...customProds];
+    setProducts(MarketplaceStore.filterDeletedProducts(combined));
   };
 
   useEffect(() => {
     loadSellersAndProducts();
+    window.addEventListener("beitak-products-updated", loadSellersAndProducts);
+    window.addEventListener("storage", loadSellersAndProducts);
+    return () => {
+      window.removeEventListener("beitak-products-updated", loadSellersAndProducts);
+      window.removeEventListener("storage", loadSellersAndProducts);
+    };
   }, []);
 
   const activeSeller = useMemo(() => {
@@ -182,9 +189,6 @@ export function SellerStorePage() {
                   <div className="space-y-1 text-white md:text-brand-dark">
                     <div className="flex items-center gap-2">
                       <h1 className="text-xl md:text-3xl font-black">{activeSeller.store_name}</h1>
-                      {activeSeller.verified && (
-                        <CheckCircle2 className="w-6 h-6 text-emerald-500 fill-emerald-500 text-white" />
-                      )}
                     </div>
                     <p className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
                       <span>مالك المتجر: {activeSeller.owner_name}</span> •{" "}

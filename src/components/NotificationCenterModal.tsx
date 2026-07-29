@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { MarketplaceStore, SystemNotification } from "@/lib/marketplaceStore";
+import { supabase } from "@/integrations/supabase/client";
 import {
   Bell,
   Check,
@@ -22,20 +23,34 @@ interface NotificationCenterProps {
 export function NotificationCenterModal({ isOpen, onClose }: NotificationCenterProps) {
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
   const [activeTab, setActiveTab] = useState<"all" | "order" | "message" | "announcement">("all");
+  const [userId, setUserId] = useState<string | undefined>(undefined);
 
-  const loadNotifs = () => {
-    setNotifications(MarketplaceStore.getNotifications());
+  const loadNotifs = (uId?: string) => {
+    const targetId = uId !== undefined ? uId : userId;
+    setNotifications(MarketplaceStore.getNotifications(targetId));
   };
 
   useEffect(() => {
-    if (isOpen) {
+    let mounted = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
+      const uid = data.session?.user?.id;
+      setUserId(uid);
+      if (isOpen) {
+        loadNotifs(uid);
+      }
+    });
+
+    const handleUpdate = () => {
       loadNotifs();
-    }
-    window.addEventListener("beitak-notifications-updated", loadNotifs);
-    window.addEventListener("storage", loadNotifs);
+    };
+
+    window.addEventListener("beitak-notifications-updated", handleUpdate);
+    window.addEventListener("storage", handleUpdate);
     return () => {
-      window.removeEventListener("beitak-notifications-updated", loadNotifs);
-      window.removeEventListener("storage", loadNotifs);
+      mounted = false;
+      window.removeEventListener("beitak-notifications-updated", handleUpdate);
+      window.removeEventListener("storage", handleUpdate);
     };
   }, [isOpen]);
 

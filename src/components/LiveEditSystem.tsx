@@ -27,6 +27,10 @@ export function useLiveEditMode() {
 
   useEffect(() => {
     const update = () => {
+      const simRole = MarketplaceStore.getSimulationRole();
+      if (simRole === "visitor" || simRole === "customer") {
+        isLiveEditActive = false;
+      }
       setActive(isLiveEditActive);
       setEdits(MarketplaceStore.getLiveCmsEdits());
     };
@@ -39,11 +43,23 @@ export function useLiveEditMode() {
   }, []);
 
   const toggleLiveEdit = () => {
+    const simRole = MarketplaceStore.getSimulationRole();
+    if (simRole === "visitor" || simRole === "customer") {
+      isLiveEditActive = false;
+      listeners.forEach((fn) => fn());
+      toast.error("عذراً! التعديل المباشر متاح فقط للحسابات ذات صلاحية المدير العام (Super Admin)");
+      return;
+    }
     isLiveEditActive = !isLiveEditActive;
     listeners.forEach((fn) => fn());
   };
 
   const updateField = (id: string, value: string) => {
+    const simRole = MarketplaceStore.getSimulationRole();
+    if (simRole === "visitor" || simRole === "customer") {
+      toast.error("غير مسموح للزوار بإجراء تعديلات");
+      return;
+    }
     const current = MarketplaceStore.getLiveCmsEdits();
     const updated = { ...current, [id]: value };
     MarketplaceStore.saveLiveCmsEdits(updated);
@@ -185,29 +201,19 @@ export interface CustomLiveSection {
 export function LiveCustomSectionsContainer() {
   const { active } = useLiveEditMode();
   const [sections, setSections] = useState<CustomLiveSection[]>(() => {
-    try {
-      const stored = localStorage.getItem("beitak_live_custom_sections");
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
+    return MarketplaceStore.getSiteThemeSettings().customLiveSections || [];
   });
 
   const [editingSection, setEditingSection] = useState<CustomLiveSection | null>(null);
 
   useEffect(() => {
     const handleUpdate = () => {
-      try {
-        const stored = localStorage.getItem("beitak_live_custom_sections");
-        setSections(stored ? JSON.parse(stored) : []);
-      } catch {
-        // fallback
-      }
+      setSections(MarketplaceStore.getSiteThemeSettings().customLiveSections || []);
     };
-    window.addEventListener("beitak-custom-sections-updated", handleUpdate);
+    window.addEventListener("beitak-theme-updated", handleUpdate);
     window.addEventListener("storage", handleUpdate);
     return () => {
-      window.removeEventListener("beitak-custom-sections-updated", handleUpdate);
+      window.removeEventListener("beitak-theme-updated", handleUpdate);
       window.removeEventListener("storage", handleUpdate);
     };
   }, []);
@@ -216,16 +222,18 @@ export function LiveCustomSectionsContainer() {
 
   const saveSections = (newList: CustomLiveSection[]) => {
     setSections(newList);
-    localStorage.setItem("beitak_live_custom_sections", JSON.stringify(newList));
-    window.dispatchEvent(new Event("beitak-custom-sections-updated"));
+    const theme = MarketplaceStore.getSiteThemeSettings();
+    MarketplaceStore.saveSiteThemeSettings({
+      ...theme,
+      customLiveSections: newList,
+    });
+    window.dispatchEvent(new Event("beitak-theme-updated"));
   };
 
   const handleDelete = (id: string) => {
-    if (confirm("هل أنت متأكد من حذف هذا القسم من الصفحة؟")) {
-      const updated = sections.filter((s) => s.id !== id);
-      saveSections(updated);
-      toast.success("تم حذف القسم بنجاح");
-    }
+    const updated = sections.filter((s) => s.id !== id);
+    saveSections(updated);
+    toast.success("تم حذف القسم بنجاح من الماركت بليس");
   };
 
   const handleMoveUp = (index: number) => {
@@ -258,22 +266,22 @@ export function LiveCustomSectionsContainer() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-4 space-y-4" dir="rtl">
+    <div className="max-w-[1550px] mx-auto px-4 py-4 space-y-4" dir="rtl">
       {sections.map((sec, index) => (
         <div
           key={sec.id}
           className={`relative rounded-3xl p-6 border shadow-md transition flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
-            sec.bgColor || "bg-[#1C1613] text-[#F8F5EE] border-[#D2B48C]/40"
+            sec.bgColor || "bg-brand-dark text-brand-bg border-brand-accent/30"
           }`}
         >
           {/* Section Management Action Controls in Edit Mode */}
           {active && (
-            <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-[#1C1613] border border-[#D2B48C] p-1.5 rounded-2xl shadow-xl z-20">
+            <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-card border border-brand-dark/20 p-1.5 rounded-2xl shadow-xl z-20">
               <button
                 type="button"
                 onClick={() => handleMoveUp(index)}
                 disabled={index === 0}
-                className="bg-[#5C4033] hover:bg-[#D2B48C] hover:text-[#1C1613] text-[#F8F5EE] p-1.5 rounded-xl disabled:opacity-30 cursor-pointer text-xs"
+                className="bg-brand-dark hover:bg-brand-accent hover:text-brand-dark text-brand-bg p-1.5 rounded-xl disabled:opacity-30 cursor-pointer text-xs transition"
                 title="تحريك لأعلى"
               >
                 <ArrowUp className="w-3.5 h-3.5" />
@@ -282,7 +290,7 @@ export function LiveCustomSectionsContainer() {
                 type="button"
                 onClick={() => handleMoveDown(index)}
                 disabled={index === sections.length - 1}
-                className="bg-[#5C4033] hover:bg-[#D2B48C] hover:text-[#1C1613] text-[#F8F5EE] p-1.5 rounded-xl disabled:opacity-30 cursor-pointer text-xs"
+                className="bg-brand-dark hover:bg-brand-accent hover:text-brand-dark text-brand-bg p-1.5 rounded-xl disabled:opacity-30 cursor-pointer text-xs transition"
                 title="تحريك لأسفل"
               >
                 <ArrowDown className="w-3.5 h-3.5" />
@@ -290,7 +298,7 @@ export function LiveCustomSectionsContainer() {
               <button
                 type="button"
                 onClick={() => setEditingSection(sec)}
-                className="bg-[#D2B48C] hover:bg-white text-[#1C1613] font-black px-2.5 py-1 rounded-xl text-[11px] cursor-pointer"
+                className="bg-brand-accent hover:bg-amber-500 text-brand-dark font-extrabold px-3 py-1 rounded-xl text-[11px] cursor-pointer transition"
                 title="تعديل هذا القسم"
               >
                 تعديل
@@ -298,7 +306,7 @@ export function LiveCustomSectionsContainer() {
               <button
                 type="button"
                 onClick={() => handleDelete(sec.id)}
-                className="bg-rose-800 hover:bg-rose-950 text-white p-1.5 rounded-xl cursor-pointer"
+                className="bg-rose-600 hover:bg-rose-700 text-white p-1.5 rounded-xl cursor-pointer transition"
                 title="حذف هذا القسم"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -306,13 +314,13 @@ export function LiveCustomSectionsContainer() {
             </div>
           )}
 
-          <div className="space-y-1 max-w-2xl">
+          <div className="space-y-1.5 max-w-2xl">
             {sec.badgeText && (
-              <span className="bg-[#D2B48C]/20 text-[#D2B48C] text-xs font-black px-3 py-1 rounded-full inline-block mb-1 border border-[#D2B48C]/30">
+              <span className="bg-brand-accent/20 text-brand-accent text-xs font-black px-3 py-1 rounded-full inline-block mb-1 border border-brand-accent/30">
                 {sec.badgeText}
               </span>
             )}
-            <h3 className="text-lg md:text-xl font-black leading-snug">{sec.title}</h3>
+            <h3 className="text-lg md:text-2xl font-extrabold leading-snug">{sec.title}</h3>
             {sec.subtitle && (
               <p className="text-xs md:text-sm font-medium opacity-90 leading-relaxed">
                 {sec.subtitle}
@@ -323,7 +331,7 @@ export function LiveCustomSectionsContainer() {
           {sec.buttonText && (
             <a
               href={sec.buttonUrl || "#"}
-              className="bg-[#D2B48C] hover:bg-[#c5a378] text-[#1C1613] font-black px-6 py-3 rounded-2xl text-xs transition shadow-md shrink-0 inline-flex items-center gap-2"
+              className="bg-brand-accent hover:bg-amber-500 text-brand-dark font-extrabold px-6 py-3.5 rounded-2xl text-xs transition shadow-md shrink-0 inline-flex items-center gap-2 cursor-pointer"
             >
               {sec.buttonText}
             </a>
@@ -334,8 +342,10 @@ export function LiveCustomSectionsContainer() {
       {/* Edit Section Modal */}
       {editingSection && (
         <div className="fixed inset-0 z-[10002] bg-black/70 flex items-center justify-center p-4">
-          <div className="bg-[#1C1613] text-[#F8F5EE] border-2 border-[#D2B48C] rounded-3xl p-6 w-full max-w-lg space-y-4 shadow-2xl">
-            <h3 className="text-sm font-black text-[#D2B48C]">تعديل بيانات القسم التفاعلي</h3>
+          <div className="bg-card text-brand-dark border border-brand-dark/20 rounded-3xl p-6 w-full max-w-lg space-y-4 shadow-2xl">
+            <h3 className="text-base font-extrabold text-brand-dark border-b border-brand-dark/10 pb-3">
+              تعديل بيانات القسم التفاعلي
+            </h3>
             <form onSubmit={handleUpdateSection} className="space-y-3 text-xs">
               <div>
                 <label className="block mb-1 font-bold">العنوان الرئيسي:</label>
@@ -343,7 +353,7 @@ export function LiveCustomSectionsContainer() {
                   type="text"
                   value={editingSection.title}
                   onChange={(e) => setEditingSection({ ...editingSection, title: e.target.value })}
-                  className="w-full bg-white text-[#1C1613] font-bold p-2.5 rounded-xl outline-none"
+                  className="w-full bg-background border border-brand-dark/15 text-brand-dark font-bold p-3 rounded-xl outline-none focus:border-brand-accent"
                   required
                 />
               </div>
@@ -354,7 +364,7 @@ export function LiveCustomSectionsContainer() {
                   onChange={(e) =>
                     setEditingSection({ ...editingSection, subtitle: e.target.value })
                   }
-                  className="w-full bg-white text-[#1C1613] font-medium p-2.5 rounded-xl outline-none h-16"
+                  className="w-full bg-background border border-brand-dark/15 text-brand-dark font-medium p-3 rounded-xl outline-none focus:border-brand-accent h-20"
                 />
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -366,7 +376,7 @@ export function LiveCustomSectionsContainer() {
                     onChange={(e) =>
                       setEditingSection({ ...editingSection, badgeText: e.target.value })
                     }
-                    className="w-full bg-white text-[#1C1613] font-bold p-2.5 rounded-xl outline-none"
+                    className="w-full bg-background border border-brand-dark/15 text-brand-dark font-bold p-2.5 rounded-xl outline-none"
                   />
                 </div>
                 <div>
@@ -377,7 +387,7 @@ export function LiveCustomSectionsContainer() {
                     onChange={(e) =>
                       setEditingSection({ ...editingSection, buttonText: e.target.value })
                     }
-                    className="w-full bg-white text-[#1C1613] font-bold p-2.5 rounded-xl outline-none"
+                    className="w-full bg-background border border-brand-dark/15 text-brand-dark font-bold p-2.5 rounded-xl outline-none"
                   />
                 </div>
               </div>
@@ -389,20 +399,45 @@ export function LiveCustomSectionsContainer() {
                   onChange={(e) =>
                     setEditingSection({ ...editingSection, buttonUrl: e.target.value })
                   }
-                  className="w-full bg-white text-[#1C1613] font-mono p-2.5 rounded-xl outline-none"
+                  className="w-full bg-background border border-brand-dark/15 text-brand-dark font-mono p-2.5 rounded-xl outline-none"
                 />
               </div>
-              <div className="flex gap-2 pt-2">
+              <div>
+                <label className="block mb-1 font-bold">نمط الألوان:</label>
+                <select
+                  value={
+                    editingSection.bgColor || "bg-brand-dark text-brand-bg border-brand-accent/30"
+                  }
+                  onChange={(e) =>
+                    setEditingSection({ ...editingSection, bgColor: e.target.value })
+                  }
+                  className="w-full bg-background border border-brand-dark/15 text-brand-dark font-bold p-2.5 rounded-xl outline-none"
+                >
+                  <option value="bg-brand-dark text-brand-bg border-brand-accent/30">
+                    داكن فاخر (الافتراضي للموقع)
+                  </option>
+                  <option value="bg-card text-brand-dark border-brand-dark/10">
+                    كارت فاتح أنيق
+                  </option>
+                  <option value="bg-brand-primary text-white border-brand-primary">
+                    اللون الكحلي الرئيسي للمنصة
+                  </option>
+                  <option value="bg-amber-500/10 text-amber-950 border-amber-500/30">
+                    ذهبي دافئ مميز
+                  </option>
+                </select>
+              </div>
+              <div className="flex gap-2 pt-3">
                 <button
                   type="submit"
-                  className="flex-1 bg-[#D2B48C] text-[#1C1613] font-black py-2.5 rounded-xl text-xs cursor-pointer"
+                  className="flex-1 bg-brand-accent hover:bg-amber-500 text-brand-dark font-black py-3 rounded-xl text-xs cursor-pointer transition"
                 >
                   حفظ التعديلات
                 </button>
                 <button
                   type="button"
                   onClick={() => setEditingSection(null)}
-                  className="bg-[#5C4033] text-white font-bold px-4 py-2.5 rounded-xl text-xs cursor-pointer"
+                  className="bg-secondary text-brand-dark font-bold px-5 py-3 rounded-xl text-xs cursor-pointer hover:bg-secondary/80 transition"
                 >
                   إلغاء
                 </button>
@@ -426,7 +461,10 @@ interface SelectedDomElement {
 
 // Live Edit Mode Floating Controller Bar for Super Admin Only
 export function LiveEditAdminBar() {
-  const isAdmin = useIsAdmin();
+  const { isAdmin } = useIsAdmin();
+  const simRole = MarketplaceStore.getSimulationRole();
+  const canEdit = isAdmin && simRole !== "visitor" && simRole !== "customer";
+
   const { active, toggleLiveEdit } = useLiveEditMode();
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedEl, setSelectedEl] = useState<SelectedDomElement | null>(null);
@@ -443,7 +481,7 @@ export function LiveEditAdminBar() {
   const [secBgColor, setSecBgColor] = useState("bg-[#1C1613] text-[#F8F5EE] border-[#D2B48C]");
 
   useEffect(() => {
-    if (!active) {
+    if (!active || !canEdit) {
       setSelectedEl(null);
       return;
     }
@@ -548,12 +586,15 @@ export function LiveEditAdminBar() {
     };
 
     try {
-      const stored = localStorage.getItem("beitak_live_custom_sections");
-      const current = stored ? JSON.parse(stored) : [];
+      const theme = MarketplaceStore.getSiteThemeSettings();
+      const current = theme.customLiveSections || [];
       const updated = [newSec, ...current];
-      localStorage.setItem("beitak_live_custom_sections", JSON.stringify(updated));
-      window.dispatchEvent(new Event("beitak-custom-sections-updated"));
-      toast.success("تم إضافة القسم التفاعلي بنجاح");
+      MarketplaceStore.saveSiteThemeSettings({
+        ...theme,
+        customLiveSections: updated,
+      });
+      window.dispatchEvent(new Event("beitak-theme-updated"));
+      toast.success("تم إضافة القسم التفاعلي بنجاح بالماركت بليس");
       setShowAddModal(false);
       setSecTitle("");
       setSecSubtitle("");
@@ -563,11 +604,16 @@ export function LiveEditAdminBar() {
   };
 
   const handleResetAllEdits = () => {
-    if (window.confirm("هل أنت متأكد من إلغاء كافة التعديلات المباشرة وإعادة ضبط نصوص الموقع؟")) {
-      MarketplaceStore.saveLiveCmsEdits({});
-      toast.success("تم إعادة ضبط جميع نصوص الموقع للأصل بنجاح");
-    }
+    MarketplaceStore.saveLiveCmsEdits({});
+    const theme = MarketplaceStore.getDefaultThemeSettings();
+    MarketplaceStore.saveSiteThemeSettings(theme);
+    window.dispatchEvent(new Event("beitak-theme-updated"));
+    toast.success("تم إعادة ضبط جميع نصوص وأقسام الموقع للأصل بنجاح");
   };
+
+  if (!canEdit) {
+    return null;
+  }
 
   return (
     <>
@@ -580,18 +626,18 @@ export function LiveEditAdminBar() {
           onClick={toggleLiveEdit}
           className={`flex items-center gap-2 px-5 py-3 rounded-full font-black text-xs shadow-2xl border transition cursor-pointer ${
             active
-              ? "bg-[#1C1613] text-[#D2B48C] border-[#D2B48C] ring-2 ring-[#D2B48C]/50"
-              : "bg-[#1C1613] text-[#F8F5EE] border-[#5C4033] hover:bg-[#5C4033]"
+              ? "bg-brand-dark text-brand-accent border-brand-accent ring-2 ring-brand-accent/50"
+              : "bg-brand-dark text-brand-bg border-brand-dark/20 hover:bg-brand-primary"
           }`}
         >
-          <Edit3 className="w-4 h-4 text-[#D2B48C]" />
+          <Edit3 className="w-4 h-4 text-brand-accent" />
           {active ? "إيقاف التعديل المباشر" : "تعديل مباشر بالموقع"}
         </button>
 
         {active && (
           <button
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 bg-[#5C4033] hover:bg-[#1C1613] text-[#F8F5EE] font-black text-xs px-4 py-3 rounded-full shadow-2xl border border-[#D2B48C]/40 transition cursor-pointer"
+            className="flex items-center gap-1.5 bg-brand-accent hover:bg-amber-500 text-brand-dark font-black text-xs px-4 py-3 rounded-full shadow-2xl border border-brand-accent/40 transition cursor-pointer"
             title="إضافة عنصر أو بنر جديد للموقع"
           >
             <Plus className="w-4 h-4" />
@@ -604,27 +650,27 @@ export function LiveEditAdminBar() {
       {active && (
         <div
           id="live-edit-admin-bar"
-          className="bg-[#1C1613] text-[#F8F5EE] py-3 px-5 text-xs font-bold sticky top-0 z-[9998] shadow-xl border-b border-[#5C4033]/40 flex items-center justify-between"
+          className="bg-brand-dark text-brand-bg py-3 px-5 text-xs font-bold sticky top-0 z-[9998] shadow-xl border-b border-brand-accent/20 flex items-center justify-between"
           dir="rtl"
         >
           <div className="flex items-center gap-3">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#D2B48C] animate-pulse" />
-            <span className="font-black text-[#D2B48C] text-sm">وضع التعديل المباشر</span>
-            <span className="text-[11px] text-stone-300 bg-[#5C4033]/30 border border-[#D2B48C]/20 px-3 py-1 rounded-full hidden sm:inline">
+            <span className="w-2.5 h-2.5 rounded-full bg-brand-accent animate-pulse" />
+            <span className="font-black text-brand-accent text-sm">وضع التعديل المباشر</span>
+            <span className="text-[11px] text-brand-bg/80 bg-brand-bg/10 border border-brand-accent/20 px-3 py-1 rounded-full hidden sm:inline">
               اضغط على أي نص، عنوان، زر، أو أيقونة بالموقع لتعديلها أو تكبيرها فوراً
             </span>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowAddModal(true)}
-              className="bg-[#D2B48C] hover:bg-[#c5a378] text-[#1C1613] px-3.5 py-1.5 rounded-xl font-black text-xs shadow flex items-center gap-1 cursor-pointer transition"
+              className="bg-brand-accent hover:bg-amber-500 text-brand-dark px-3.5 py-1.5 rounded-xl font-black text-xs shadow flex items-center gap-1 cursor-pointer transition"
             >
               <Plus className="w-3.5 h-3.5" />
               إضافة قسم
             </button>
             <button
               onClick={handleResetAllEdits}
-              className="bg-[#5C4033] hover:bg-[#1C1613] text-[#F8F5EE] px-3 py-1.5 rounded-xl font-bold text-[11px] cursor-pointer transition border border-[#D2B48C]/30"
+              className="bg-brand-primary hover:bg-brand-dark text-white px-3 py-1.5 rounded-xl font-bold text-[11px] cursor-pointer transition border border-brand-accent/20"
               title="إعادة ضبط كافة النصوص للأصل"
             >
               إعادة الضبط
@@ -634,7 +680,7 @@ export function LiveEditAdminBar() {
                 toast.success("تم حفظ واعتماد كافة التعديلات بنجاح لكل زوار الموقع");
                 toggleLiveEdit();
               }}
-              className="bg-[#D2B48C] hover:bg-[#c5a378] text-[#1C1613] px-4 py-1.5 rounded-xl font-black text-xs shadow flex items-center gap-1.5 cursor-pointer transition"
+              className="bg-brand-accent hover:bg-amber-500 text-brand-dark px-4 py-1.5 rounded-xl font-black text-xs shadow flex items-center gap-1.5 cursor-pointer transition"
             >
               <Save className="w-3.5 h-3.5" />
               حفظ واعتماد التعديل

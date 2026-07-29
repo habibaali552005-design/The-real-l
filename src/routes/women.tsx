@@ -26,12 +26,32 @@ import { MarketplaceStore } from "@/lib/marketplaceStore";
 const womenProductsQuery = {
   queryKey: ["products", "women"],
   queryFn: async () => {
-    const { data, error } = await supabase
-      .from("products")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (error) throw error;
-    return data || [];
+    let raw: Product[] = [];
+    try {
+      const { data } = await supabase
+        .from("products")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (data) raw = data as Product[];
+    } catch {
+      // fallback
+    }
+    const customMap = MarketplaceStore.getCustomProducts();
+    const existingIds = new Set(raw.map((p) => p.id));
+    raw = raw.map((p) => (customMap[p.id] ? { ...p, ...customMap[p.id] } : p));
+    Object.keys(customMap).forEach((id) => {
+      if (!existingIds.has(id)) {
+        raw.unshift({
+          id,
+          name: "منتج جديد",
+          price: 100,
+          in_stock: true,
+          created_at: new Date().toISOString(),
+          ...customMap[id],
+        } as Product);
+      }
+    });
+    return MarketplaceStore.filterDeletedProducts(raw);
   },
 };
 
@@ -81,7 +101,9 @@ export function WomenLoungePage() {
 
   // User Gender check
   const userGender = MarketplaceStore.getUserGender();
-  const isAdmin = useIsAdmin();
+  const { isAdmin } = useIsAdmin();
+  const simRole = MarketplaceStore.getSimulationRole();
+  const canEdit = isAdmin && simRole !== "visitor" && simRole !== "customer";
 
   // Subcategory and search state
   const [selectedSubcat, setSelectedSubcat] = useState<string>("الكل");
@@ -252,35 +274,23 @@ export function WomenLoungePage() {
 
       <div className="max-w-7xl mx-auto px-4 py-8 space-y-8" dir="rtl">
         {/* Header Banner */}
-        <div className="relative rounded-3xl overflow-hidden bg-gradient-to-r from-rose-950 via-pink-900 to-purple-950 text-white p-6 md:p-12 shadow-xl border border-pink-500/20">
-          <div className="relative z-10 max-w-2xl space-y-4">
-            <span className="inline-flex items-center gap-1.5 bg-pink-500/20 text-pink-200 border border-pink-400/30 px-3.5 py-1 rounded-full text-xs font-black backdrop-blur-md">
+        <div className="rounded-2xl bg-rose-950 text-white p-6 shadow-xs border border-rose-800/30 flex items-center justify-between">
+          <div className="space-y-1">
+            <span className="inline-flex items-center gap-1.5 text-pink-300 text-xs font-bold">
               <Sparkles className="w-3.5 h-3.5" />
-              قسم منفصل للنساء والفتيات
+              قسم النساء
             </span>
-            <h1 className="text-3xl md:text-5xl font-black leading-tight text-white tracking-tight">
-              عالم الأناقة والجمال النسائي الخصوصي
-            </h1>
-            <p className="text-xs md:text-sm text-pink-100/90 leading-relaxed">
-              تصفحي أرقى العبايات، الملابس النسائية، العطور ومستحضرات التجميل بكل راحة وخصوصية. جميع
-              المنتجات هنا معروضة خصيصاً في هذا القسم المستقل.
-            </p>
-
-            {isAdmin && (
-              <div className="pt-2">
-                <button
-                  onClick={() => setShowRulesAdminModal(true)}
-                  className="bg-white text-pink-900 font-black px-4 py-2 rounded-xl text-xs shadow hover:bg-pink-100 transition flex items-center gap-2 cursor-pointer"
-                >
-                  <ShieldCheck className="w-4 h-4 text-pink-600" />
-                  إدارة شروط وقواعد النشر لهذا القسم (السوبر أدمن)
-                </button>
-              </div>
-            )}
+            <h1 className="text-xl md:text-2xl font-bold text-white">الأزياء والمنتجات النسائية</h1>
           </div>
-          <div className="absolute left-6 bottom-6 hidden lg:block opacity-20 pointer-events-none">
-            <div className="text-9xl font-black text-pink-200">WOMEN</div>
-          </div>
+          {canEdit && (
+            <button
+              onClick={() => setShowRulesAdminModal(true)}
+              className="bg-white/10 hover:bg-white/20 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition border border-white/20 flex items-center gap-1.5 cursor-pointer"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-pink-300" />
+              قواعد النشر
+            </button>
+          )}
         </div>
 
         {/* Subcategories Scroll Bar */}

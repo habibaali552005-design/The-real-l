@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { PageShell } from "@/components/Layout";
 import { useCart, formatEGP } from "@/lib/cart";
@@ -20,20 +20,21 @@ const homeQuery = {
       supabase.from("products").select("*").order("created_at", { ascending: false }).limit(12),
       supabase.from("categories").select("*").order("sort_order"),
     ]);
-    let categoryList = (cats ?? []) as { id: string; name: string }[];
+    let categoryList = (cats ?? []) as { id: string; name: string; icon?: string }[];
     if (categoryList.length === 0) {
-      categoryList = [
-        { id: "cat-1", name: "موضة وأزياء" },
-        { id: "cat-2", name: "إلكترونيات وهواتف" },
-        { id: "cat-3", name: "أجهزة منزلية" },
-        { id: "cat-4", name: "مستحضرات تجميل" },
-        { id: "cat-5", name: "ألعاب وأطفال" },
-        { id: "cat-6", name: "أثاث ومفروشات" },
-      ];
+      const rootCats = MarketplaceStore.getCategories().filter((c) => !c.parentId);
+      categoryList = rootCats.map((c) => ({ id: c.id, name: c.name, icon: c.icon }));
     }
+    const customMap = MarketplaceStore.getCustomProducts();
+    let featList = (featured ?? []) as Product[];
+    let lateList = (latest ?? []) as Product[];
+
+    featList = featList.map((p) => (customMap[p.id] ? { ...p, ...customMap[p.id] } : p));
+    lateList = lateList.map((p) => (customMap[p.id] ? { ...p, ...customMap[p.id] } : p));
+
     return {
-      featured: (featured ?? []) as Product[],
-      latest: (latest ?? []) as Product[],
+      featured: MarketplaceStore.filterDeletedProducts(featList),
+      latest: MarketplaceStore.filterDeletedProducts(lateList),
       categories: categoryList,
     };
   },
@@ -83,18 +84,23 @@ function Home() {
 
   const [themeConf, setThemeConf] = useState(() => MarketplaceStore.getDefaultThemeSettings());
 
+  const queryClient = useQueryClient();
+
   useEffect(() => {
     setThemeConf(MarketplaceStore.getSiteThemeSettings());
     const handleUpdate = () => {
       setThemeConf(MarketplaceStore.getSiteThemeSettings());
+      queryClient.invalidateQueries({ queryKey: ["home"] });
     };
     window.addEventListener("beitak-theme-updated", handleUpdate);
+    window.addEventListener("beitak-products-updated", handleUpdate);
     window.addEventListener("storage", handleUpdate);
     return () => {
       window.removeEventListener("beitak-theme-updated", handleUpdate);
+      window.removeEventListener("beitak-products-updated", handleUpdate);
       window.removeEventListener("storage", handleUpdate);
     };
-  }, []);
+  }, [queryClient]);
 
   const sectionsOrder = (
     themeConf.homepageSections || ["hero", "trust", "categories", "featured", "latest", "cta"]
@@ -248,13 +254,8 @@ function Home() {
               textColor={themeConf.homepageText}
               onSelect={(p) => setSelectedProduct(p)}
               onAdd={(p) => {
-                if ((p.colors && p.colors.length > 0) || (p.sizes && p.sizes.length > 0)) {
-                  toast.info("يرجى تحديد الخيارات المطلوبة بالصفحة أولاً");
-                  setSelectedProduct(p);
-                } else {
-                  add({ id: p.id, name: p.name, price: Number(p.price), image_url: p.image_url });
-                  toast.success("تمت الإضافة للسلة");
-                }
+                toast.info("يرجى تحديد اللون والنقاش/المقاس لتأكيد طلبك قبل الإضافة للسلة");
+                setSelectedProduct(p);
               }}
             />
           </section>
@@ -280,13 +281,8 @@ function Home() {
               textColor={themeConf.homepageText}
               onSelect={(p) => setSelectedProduct(p)}
               onAdd={(p) => {
-                if ((p.colors && p.colors.length > 0) || (p.sizes && p.sizes.length > 0)) {
-                  toast.info("يرجى تحديد الخيارات المطلوبة بالصفحة أولاً");
-                  setSelectedProduct(p);
-                } else {
-                  add({ id: p.id, name: p.name, price: Number(p.price), image_url: p.image_url });
-                  toast.success("تمت الإضافة للسلة");
-                }
+                toast.info("يرجى تحديد اللون والنقاش/المقاس لتأكيد طلبك قبل الإضافة للسلة");
+                setSelectedProduct(p);
               }}
             />
           </section>
@@ -325,7 +321,11 @@ function Home() {
   return (
     <PageShell>
       <div
-        style={{ minHeight: "100vh" }}
+        style={{
+          backgroundColor: themeConf.homepageBg,
+          color: themeConf.homepageText,
+          minHeight: "100vh",
+        }}
       >
         <LiveCustomSectionsContainer />
         {sectionsOrder.map((secId) => renderSection(secId))}
@@ -393,6 +393,18 @@ function ProductGrid({
           >
             {p.name}
           </h3>
+          {(p.brand || p.seller_name) && (
+            <div className="flex items-center gap-1.5 flex-wrap text-[10px] text-muted-foreground mb-1">
+              {p.brand && (
+                <span className="font-bold text-brand-dark/80 bg-brand-dark/5 px-1.5 py-0.5 rounded">
+                  {p.brand}
+                </span>
+              )}
+              {p.seller_name && (
+                <span className="font-semibold text-brand-dark/70">{p.seller_name}</span>
+              )}
+            </div>
+          )}
           <p className="text-brand-accent font-bold text-xs md:text-sm">
             {formatEGP(Number(p.price))}
           </p>

@@ -70,7 +70,11 @@ export function SiteHeader() {
   const [themeConf, setThemeConf] = useState(() => MarketplaceStore.getDefaultThemeSettings());
 
   const updateNotifBadge = () => {
-    const list = MarketplaceStore.getNotifications();
+    if (!user) {
+      setUnreadNotifCount(0);
+      return;
+    }
+    const list = MarketplaceStore.getNotifications(user.id);
     setUnreadNotifCount(list.filter((n) => !n.read).length);
   };
 
@@ -82,7 +86,7 @@ export function SiteHeader() {
       window.removeEventListener("beitak-notifications-updated", updateNotifBadge);
       window.removeEventListener("storage", updateNotifBadge);
     };
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     setThemeConf(MarketplaceStore.getSiteThemeSettings());
@@ -149,14 +153,16 @@ export function SiteHeader() {
     navigate({ to: "/" });
   };
 
+  const simRole = MarketplaceStore.getSimulationRole();
+  const isSellerOrAdmin = isAdmin || simRole === "seller" || simRole === "super_admin";
+
   const mainNavLinks = [
     { to: "/" as const, label: "الرئيسية" },
     { to: "/products" as const, label: "المنتجات" },
-    { to: "/deals" as const, label: "التخفيضات" },
-    { to: "/brand" as const, label: "الماركات" },
-    { to: "/store" as const, label: "المتاجر" },
+    { to: "/categories" as const, label: "الأقسام" },
     { to: "/help" as const, label: "المساعدة" },
-    { to: "/seller-guide" as const, label: "دليل البائعين" },
+    ...(isSellerOrAdmin ? [{ to: "/seller-guide" as const, label: "المركز التعليمي للبائعين" }] : []),
+    { to: "/contact" as const, label: "تواصل معنا" },
   ];
 
   return (
@@ -265,13 +271,15 @@ export function SiteHeader() {
                       <User className="w-4 h-4 text-brand-primary" /> حسابي الشخصي والإعدادات
                     </Link>
 
-                    <Link
-                      to="/seller-guide"
-                      onClick={() => setAcctOpen(false)}
-                      className="flex items-center gap-2 px-4 py-3 font-bold hover:bg-secondary text-brand-dark"
-                    >
-                      <BookOpen className="w-4 h-4 text-amber-600" /> المركز التعليمي للبائعين
-                    </Link>
+                    {isSellerOrAdmin && (
+                      <Link
+                        to="/seller-guide"
+                        onClick={() => setAcctOpen(false)}
+                        className="flex items-center gap-2 px-4 py-3 font-bold hover:bg-secondary text-brand-dark"
+                      >
+                        <BookOpen className="w-4 h-4 text-amber-600" /> المركز التعليمي للبائعين
+                      </Link>
+                    )}
 
                     {isAdmin && (
                       <Link
@@ -364,33 +372,14 @@ export function SiteHeader() {
               كل المنتجات
             </Link>
 
-            <Link
-              to="/deals"
-              className="shrink-0 bg-white/10 hover:bg-white/20 text-white px-3.5 py-1.5 rounded-full font-bold transition text-[11px]"
-            >
-              التخفيضات
-            </Link>
-
-            <Link
-              to="/brand"
-              className="shrink-0 bg-white/10 hover:bg-white/20 text-white px-3.5 py-1.5 rounded-full font-bold transition text-[11px]"
-            >
-              الماركات
-            </Link>
-
-            <Link
-              to="/store"
-              className="shrink-0 bg-white/10 hover:bg-white/20 text-white px-3.5 py-1.5 rounded-full font-bold transition text-[11px]"
-            >
-              المتاجر
-            </Link>
-
-            <Link
-              to="/seller-guide"
-              className="shrink-0 bg-white/10 hover:bg-white/20 text-white px-3.5 py-1.5 rounded-full font-bold transition text-[11px]"
-            >
-              المركز التعليمي للبائعين
-            </Link>
+            {isSellerOrAdmin && (
+              <Link
+                to="/seller-guide"
+                className="shrink-0 bg-white/10 hover:bg-white/20 text-white px-3.5 py-1.5 rounded-full font-bold transition text-[11px]"
+              >
+                المركز التعليمي للبائعين
+              </Link>
+            )}
 
             <Link
               to="/contact"
@@ -402,22 +391,40 @@ export function SiteHeader() {
 
           {/* Dedicated Notifications & Direct Messaging Actions in Content Bar */}
           <div className="flex items-center gap-2 shrink-0">
-            <Link
-              to="/notifications"
-              className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-full font-bold transition text-[11px] relative cursor-pointer"
-              title="صفحة مركز الإشعارات والتنبيهات"
-            >
-              <Bell className="w-3.5 h-3.5 text-brand-accent" />
-              <span>الإشعارات</span>
-              {unreadNotifCount > 0 && (
-                <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 rounded-full">
-                  {unreadNotifCount}
-                </span>
-              )}
-            </Link>
+            {user ? (
+              <Link
+                to="/notifications"
+                className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-full font-bold transition text-[11px] relative cursor-pointer"
+                title="صفحة مركز الإشعارات والتنبيهات"
+              >
+                <Bell className="w-3.5 h-3.5 text-brand-accent" />
+                <span>الإشعارات</span>
+                {unreadNotifCount > 0 && (
+                  <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 rounded-full">
+                    {unreadNotifCount}
+                  </span>
+                )}
+              </Link>
+            ) : (
+              <Link
+                to="/auth"
+                className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-full font-bold transition text-[11px] relative cursor-pointer"
+                title="تسجيل الدخول لعرض الإشعارات"
+              >
+                <Bell className="w-3.5 h-3.5 text-brand-accent" />
+                <span>الإشعارات</span>
+              </Link>
+            )}
 
             <button
-              onClick={() => setChatModalOpen(true)}
+              onClick={() => {
+                if (!user) {
+                  toast.error("يرجى تسجيل الدخول أولاً للوصول للرسائل والمحادثات الخاصة بك");
+                  navigate({ to: "/auth" });
+                } else {
+                  setChatModalOpen(true);
+                }
+              }}
               className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-full font-bold transition text-[11px] cursor-pointer"
               title="الرسائل والمحادثات المباشرة"
             >

@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 export type CartItem = {
   id: string;
@@ -22,25 +23,57 @@ type CartContextType = {
 };
 
 const CartContext = createContext<CartContextType | null>(null);
-const STORAGE_KEY = "arkan_cart_v2";
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
+  const [storageKey, setStorageKey] = useState<string>("beitak_cart_guest");
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setItems(JSON.parse(raw));
-    } catch (e) {
-      console.warn("Failed to load cart items:", e);
-    }
-    setHydrated(true);
+    let mounted = true;
+
+    const loadCartForKey = (key: string) => {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          setItems(JSON.parse(raw));
+        } else {
+          setItems([]);
+        }
+      } catch (e) {
+        console.warn("Failed to load cart items:", e);
+        setItems([]);
+      }
+    };
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
+      const user = data.session?.user;
+      const key = user ? `beitak_cart_user_${user.id}` : "beitak_cart_guest";
+      setStorageKey(key);
+      loadCartForKey(key);
+      setHydrated(true);
+    });
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
+      const user = session?.user;
+      const key = user ? `beitak_cart_user_${user.id}` : "beitak_cart_guest";
+      setStorageKey(key);
+      loadCartForKey(key);
+    });
+
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
-    if (hydrated) localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  }, [items, hydrated]);
+    if (hydrated && storageKey) {
+      localStorage.setItem(storageKey, JSON.stringify(items));
+    }
+  }, [items, hydrated, storageKey]);
 
   const add: CartContextType["add"] = (item, qty = 1) => {
     const cartItemId = `${item.id}${item.selectedColor ? `-${item.selectedColor}` : ""}${
