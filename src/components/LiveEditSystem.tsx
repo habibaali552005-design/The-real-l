@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { useState, useEffect } from "react";
 import { useIsAdmin } from "@/lib/useIsAdmin";
 import { MarketplaceStore } from "@/lib/marketplaceStore";
@@ -27,10 +28,6 @@ export function useLiveEditMode() {
 
   useEffect(() => {
     const update = () => {
-      const simRole = MarketplaceStore.getSimulationRole();
-      if (simRole === "visitor" || simRole === "customer") {
-        isLiveEditActive = false;
-      }
       setActive(isLiveEditActive);
       setEdits(MarketplaceStore.getLiveCmsEdits());
     };
@@ -43,23 +40,11 @@ export function useLiveEditMode() {
   }, []);
 
   const toggleLiveEdit = () => {
-    const simRole = MarketplaceStore.getSimulationRole();
-    if (simRole === "visitor" || simRole === "customer") {
-      isLiveEditActive = false;
-      listeners.forEach((fn) => fn());
-      toast.error("عذراً! التعديل المباشر متاح فقط للحسابات ذات صلاحية المدير العام (Super Admin)");
-      return;
-    }
     isLiveEditActive = !isLiveEditActive;
     listeners.forEach((fn) => fn());
   };
 
   const updateField = (id: string, value: string) => {
-    const simRole = MarketplaceStore.getSimulationRole();
-    if (simRole === "visitor" || simRole === "customer") {
-      toast.error("غير مسموح للزوار بإجراء تعديلات");
-      return;
-    }
     const current = MarketplaceStore.getLiveCmsEdits();
     const updated = { ...current, [id]: value };
     MarketplaceStore.saveLiveCmsEdits(updated);
@@ -90,6 +75,10 @@ export function LiveText({
   useEffect(() => {
     setVal(currentText);
   }, [currentText]);
+
+  if (currentText === "__DELETED__") {
+    return null;
+  }
 
   if (!active) {
     return <Component className={className}>{currentText}</Component>;
@@ -211,9 +200,11 @@ export function LiveCustomSectionsContainer() {
       setSections(MarketplaceStore.getSiteThemeSettings().customLiveSections || []);
     };
     window.addEventListener("beitak-theme-updated", handleUpdate);
+    window.addEventListener("beitak-live-cms-updated", handleUpdate);
     window.addEventListener("storage", handleUpdate);
     return () => {
       window.removeEventListener("beitak-theme-updated", handleUpdate);
+      window.removeEventListener("beitak-live-cms-updated", handleUpdate);
       window.removeEventListener("storage", handleUpdate);
     };
   }, []);
@@ -231,9 +222,10 @@ export function LiveCustomSectionsContainer() {
   };
 
   const handleDelete = (id: string) => {
+    MarketplaceStore.deleteCustomLiveSection(id);
     const updated = sections.filter((s) => s.id !== id);
-    saveSections(updated);
-    toast.success("تم حذف القسم بنجاح من الماركت بليس");
+    setSections(updated);
+    toast.success("تم حذف القسم بنجاح بشكل دائم من الماركت بليس");
   };
 
   const handleMoveUp = (index: number) => {
@@ -270,6 +262,8 @@ export function LiveCustomSectionsContainer() {
       {sections.map((sec, index) => (
         <div
           key={sec.id}
+          id={sec.id}
+          data-live-id={sec.id}
           className={`relative rounded-3xl p-6 border shadow-md transition flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
             sec.bgColor || "bg-brand-dark text-brand-bg border-brand-accent/30"
           }`}
@@ -450,26 +444,48 @@ export function LiveCustomSectionsContainer() {
   );
 }
 
-// Universal DOM Inspector for full editing on any text, button, heading, or icon
+// Universal DOM Inspector for full editing on any text, button, heading, icon, or image
 interface SelectedDomElement {
   node: HTMLElement;
+  isImage: boolean;
+  isIcon: boolean;
   text: string;
+  imgSrc: string;
   fontSize: string;
+  fontWeight: string;
+  textColor: string;
+  bgColor: string;
+  borderRadius: string;
+  widthVal: string;
+  heightVal: string;
+  objectFit: string;
+  paddingVal: string;
+  rotateVal: number;
   scale: number;
   rect: DOMRect;
 }
 
 // Live Edit Mode Floating Controller Bar for Super Admin Only
 export function LiveEditAdminBar() {
-  const { isAdmin } = useIsAdmin();
-  const simRole = MarketplaceStore.getSimulationRole();
-  const canEdit = isAdmin && simRole !== "visitor" && simRole !== "customer";
+  const { isAdmin, loaded } = useIsAdmin();
+  const canEdit = isAdmin;
 
   const { active, toggleLiveEdit } = useLiveEditMode();
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedEl, setSelectedEl] = useState<SelectedDomElement | null>(null);
+
+  // Inspector form states
   const [editVal, setEditVal] = useState("");
+  const [imgSrcVal, setImgSrcVal] = useState("");
   const [fontSizeVal, setFontSizeVal] = useState<string>("");
+  const [fontWeightVal, setFontWeightVal] = useState<string>("");
+  const [textColorVal, setTextColorVal] = useState<string>("");
+  const [bgColorVal, setBgColorVal] = useState<string>("");
+  const [borderRadiusVal, setBorderRadiusVal] = useState<string>("");
+  const [widthVal, setWidthVal] = useState<string>("");
+  const [heightVal, setHeightVal] = useState<string>("");
+  const [objectFitVal, setObjectFitVal] = useState<string>("cover");
+  const [rotateVal, setRotateVal] = useState<number>(0);
   const [scaleVal, setScaleVal] = useState<number>(1);
 
   // New section form state
@@ -500,70 +516,176 @@ export function LiveEditAdminBar() {
         return;
       }
 
-      // Find clickable text or element
-      const el = (target.closest("h1, h2, h3, h4, h5, h6, p, span, button, a, svg, img, label") ||
-        target) as HTMLElement;
-      if (el) {
-        const text = el.innerText || el.textContent || "";
-        if (!text.trim()) return;
+      // Find clickable text, icon, image, button, heading or container
+      const el = (target.closest(
+        "h1, h2, h3, h4, h5, h6, p, span, button, a, svg, img, label, div",
+      ) || target) as HTMLElement;
+      if (!el) return;
 
-        e.preventDefault();
-        e.stopPropagation();
+      const isImage = el.tagName === "IMG" || el.querySelector("img") !== null;
+      const isIcon = el.tagName === "SVG" || el.querySelector("svg") !== null;
+      const text = el.innerText || el.textContent || "";
 
-        const rect = el.getBoundingClientRect();
-        const computedStyle = window.getComputedStyle(el);
-        const currentFontSize = computedStyle.fontSize;
+      if (!isImage && !isIcon && !text.trim()) return;
 
-        setSelectedEl({
-          node: el,
-          text: text.trim(),
-          fontSize: currentFontSize,
-          scale: 1,
-          rect,
-        });
-        setEditVal(text.trim());
-        setFontSizeVal(currentFontSize);
-        setScaleVal(1);
+      e.preventDefault();
+      e.stopPropagation();
+
+      const rect = el.getBoundingClientRect();
+      const computedStyle = window.getComputedStyle(el);
+
+      let imgSrc = "";
+      if (el.tagName === "IMG") {
+        imgSrc = (el as HTMLImageElement).src;
+      } else if (el.querySelector("img")) {
+        imgSrc = el.querySelector("img")?.src || "";
       }
+
+      const currentFontSize = computedStyle.fontSize || "";
+      const currentFontWeight = computedStyle.fontWeight || "normal";
+      const currentColor = computedStyle.color || "";
+      const currentBg = computedStyle.backgroundColor || "";
+      const currentBorderRadius = computedStyle.borderRadius || "";
+      const currentWidth = computedStyle.width || "";
+      const currentHeight = computedStyle.height || "";
+      const currentObjectFit = computedStyle.objectFit || "cover";
+
+      setSelectedEl({
+        node: el,
+        isImage,
+        isIcon,
+        text: text.trim(),
+        imgSrc,
+        fontSize: currentFontSize,
+        fontWeight: currentFontWeight,
+        textColor: currentColor,
+        bgColor: currentBg,
+        borderRadius: currentBorderRadius,
+        widthVal: currentWidth,
+        heightVal: currentHeight,
+        objectFit: currentObjectFit,
+        paddingVal: "",
+        rotateVal: 0,
+        scale: 1,
+        rect,
+      });
+
+      setEditVal(text.trim());
+      setImgSrcVal(imgSrc);
+      setFontSizeVal(currentFontSize);
+      setFontWeightVal(currentFontWeight);
+      setTextColorVal("");
+      setBgColorVal("");
+      setBorderRadiusVal(currentBorderRadius);
+      setWidthVal("");
+      setHeightVal("");
+      setObjectFitVal(currentObjectFit);
+      setRotateVal(0);
+      setScaleVal(1);
     };
 
     window.addEventListener("click", handleGlobalClick, true);
     return () => window.removeEventListener("click", handleGlobalClick, true);
-  }, [active]);
-
-  if (!isAdmin) return null;
+  }, [active, canEdit]);
 
   const handleApplyDomEdits = () => {
     if (!selectedEl?.node) return;
 
     const el = selectedEl.node;
-    if (editVal !== selectedEl.text) {
-      el.innerText = editVal;
+
+    if (selectedEl.isImage && imgSrcVal) {
+      if (el.tagName === "IMG") {
+        (el as HTMLImageElement).src = imgSrcVal;
+      } else {
+        const innerImg = el.querySelector("img");
+        if (innerImg) innerImg.src = imgSrcVal;
+      }
     }
 
-    if (fontSizeVal) {
-      el.style.fontSize = fontSizeVal;
+    if (!selectedEl.isImage && editVal !== selectedEl.text) {
+      if (!el.querySelector("input, select, textarea")) {
+        el.innerText = editVal;
+      }
     }
 
-    if (scaleVal !== 1) {
-      el.style.transform = `scale(${scaleVal})`;
+    if (fontSizeVal) el.style.fontSize = fontSizeVal;
+    if (fontWeightVal) el.style.fontWeight = fontWeightVal;
+    if (textColorVal) el.style.color = textColorVal;
+    if (bgColorVal) el.style.backgroundColor = bgColorVal;
+    if (borderRadiusVal) el.style.borderRadius = borderRadiusVal;
+    if (widthVal) el.style.width = widthVal;
+    if (heightVal) el.style.height = heightVal;
+    if (objectFitVal) el.style.objectFit = objectFitVal;
+
+    let transformStr = "";
+    if (scaleVal !== 1) transformStr += `scale(${scaleVal}) `;
+    if (rotateVal !== 0) transformStr += `rotate(${rotateVal}deg) `;
+    if (transformStr) {
+      el.style.transform = transformStr.trim();
       el.style.transformOrigin = "center";
-      el.style.display = "inline-block";
     }
 
-    // Generate a quick path key to save persistent edit
-    const pathKey = `dom_edit_${el.tagName}_${(el.innerText || "").slice(0, 15)}_${Date.now()}`;
+    let elementId = el.id || el.getAttribute("data-live-id");
+    if (!elementId) {
+      elementId = `live_dom_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      el.setAttribute("data-live-id", elementId);
+    }
+
+    const pathKey = `live_${elementId}`;
     const currentEdits = MarketplaceStore.getLiveCmsEdits();
-    MarketplaceStore.saveLiveCmsEdits({
+    const updatedEdits = {
       ...currentEdits,
       [pathKey]: JSON.stringify({
         text: editVal,
+        imgSrc: imgSrcVal,
         fontSize: fontSizeVal,
+        fontWeight: fontWeightVal,
+        textColor: textColorVal,
+        bgColor: bgColorVal,
+        borderRadius: borderRadiusVal,
+        widthVal,
+        heightVal,
+        objectFit: objectFitVal,
         scale: scaleVal,
+        rotate: rotateVal,
       }),
-    });
+      [elementId]: editVal,
+    };
 
-    toast.success("تم اعتماد التعديل وحفظه للموقع");
+    MarketplaceStore.saveLiveCmsEdits(updatedEdits);
+    window.dispatchEvent(new Event("beitak-live-cms-updated"));
+    setSelectedEl(null);
+    toast.success("تم تطبيق التغييرات وحفظ التعديل المباشر بنجاح!");
+  };
+
+  const handleDeleteSelectedElement = () => {
+    if (!selectedEl?.node) return;
+
+    const el = selectedEl.node;
+    const elementId = el.id || el.getAttribute("data-live-id");
+    const stableTextSlug = (selectedEl.text || "").trim().slice(0, 20).replace(/\s+/g, "_");
+    const pathKey = elementId
+      ? `live_${elementId}`
+      : `dom_${el.tagName.toLowerCase()}_${stableTextSlug}`;
+
+    const currentEdits = MarketplaceStore.getLiveCmsEdits();
+    const updatedEdits = {
+      ...currentEdits,
+      [pathKey]: "__DELETED__",
+    };
+    if (elementId) {
+      const rawId = elementId.replace(/^live_/, "");
+      updatedEdits[elementId] = "__DELETED__";
+      updatedEdits[rawId] = "__DELETED__";
+      updatedEdits[`live_${rawId}`] = "__DELETED__";
+      MarketplaceStore.deleteCustomLiveSection(rawId);
+    }
+
+    MarketplaceStore.saveLiveCmsEdits(updatedEdits);
+    window.dispatchEvent(new Event("beitak-live-cms-updated"));
+    window.dispatchEvent(new Event("beitak-theme-updated"));
+    el.style.display = "none";
+    toast.success("تم حذف هذا العنصر بنجاح بشكل دائم لكل زوار الموقع");
     setSelectedEl(null);
   };
 
@@ -611,7 +733,7 @@ export function LiveEditAdminBar() {
     toast.success("تم إعادة ضبط جميع نصوص وأقسام الموقع للأصل بنجاح");
   };
 
-  if (!canEdit) {
+  if (!loaded || !canEdit) {
     return null;
   }
 
@@ -700,60 +822,156 @@ export function LiveEditAdminBar() {
       {selectedEl && active && (
         <div
           id="live-edit-inspector"
-          className="fixed z-[10001] bg-[#1C1613] text-[#F8F5EE] border-2 border-[#D2B48C] rounded-2xl p-4 shadow-2xl w-80 max-w-[90vw] animate-scaleIn space-y-3"
+          className="fixed z-[10001] bg-[#1C1613] text-[#F8F5EE] border-2 border-[#D2B48C] rounded-3xl p-5 shadow-2xl w-96 max-w-[92vw] animate-scaleIn space-y-4 max-h-[85vh] overflow-y-auto"
           style={{
-            top: Math.min(window.innerHeight - 320, Math.max(20, selectedEl.rect.bottom + 10)),
-            left: Math.min(window.innerWidth - 340, Math.max(20, selectedEl.rect.left)),
+            top: Math.min(window.innerHeight - 450, Math.max(20, selectedEl.rect.bottom + 10)),
+            left: Math.min(window.innerWidth - 400, Math.max(20, selectedEl.rect.left)),
           }}
           dir="rtl"
         >
-          <div className="flex items-center justify-between border-b border-[#5C4033] pb-2">
-            <span className="text-xs font-black text-[#D2B48C] flex items-center gap-1">
-              <Type className="w-4 h-4" /> تعديل العنصر المحدد
+          <div className="flex items-center justify-between border-b border-[#5C4033] pb-2.5">
+            <span className="text-xs font-black text-[#D2B48C] flex items-center gap-1.5">
+              <Type className="w-4 h-4 text-[#D2B48C]" />
+              {selectedEl.isImage
+                ? "تعديل الصورة المباشرة"
+                : selectedEl.isIcon
+                  ? "تعديل الأيقونة المباشرة"
+                  : "تعديل العنصر والنص المباشر"}
             </span>
             <button
               onClick={() => setSelectedEl(null)}
-              className="text-stone-400 hover:text-white p-1 cursor-pointer"
+              className="text-stone-400 hover:text-white p-1 cursor-pointer rounded-lg hover:bg-stone-800"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-[11px] font-bold text-stone-300 block">النص / المحتوى:</label>
-            <textarea
-              value={editVal}
-              onChange={(e) => setEditVal(e.target.value)}
-              className="w-full bg-white text-[#1C1613] font-bold text-xs p-2 rounded-xl outline-none border border-[#D2B48C] h-16 resize-y"
-            />
-          </div>
+          {/* Image Source Editing */}
+          {selectedEl.isImage && (
+            <div className="space-y-2 bg-[#2A211C] p-3 rounded-2xl border border-[#D2B48C]/30">
+              <label className="text-[11px] font-bold text-[#D2B48C] block">
+                رابط الصورة (Image URL / Source):
+              </label>
+              <input
+                type="text"
+                value={imgSrcVal}
+                onChange={(e) => setImgSrcVal(e.target.value)}
+                placeholder="https://..."
+                className="w-full bg-white text-[#1C1613] font-mono text-[11px] font-bold p-2 rounded-xl outline-none border border-[#D2B48C]"
+              />
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <div>
+                  <label className="text-[10px] font-bold text-stone-300 block mb-1">
+                    طريقة العرض (Fit):
+                  </label>
+                  <select
+                    value={objectFitVal}
+                    onChange={(e) => setObjectFitVal(e.target.value)}
+                    className="w-full bg-[#5C4033] text-[#F8F5EE] text-[11px] font-bold p-1.5 rounded-xl border border-[#D2B48C]/40 outline-none"
+                  >
+                    <option value="cover">غلاف كامل (Cover)</option>
+                    <option value="contain">احتواء بدون قص (Contain)</option>
+                    <option value="fill">تعبئة المساحة (Fill)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-stone-300 block mb-1">
+                    العرض الذكي:
+                  </label>
+                  <select
+                    value={widthVal}
+                    onChange={(e) => setWidthVal(e.target.value)}
+                    className="w-full bg-[#5C4033] text-[#F8F5EE] text-[11px] font-bold p-1.5 rounded-xl border border-[#D2B48C]/40 outline-none"
+                  >
+                    <option value="">تلقائي</option>
+                    <option value="100%">كامل العرض (100%)</option>
+                    <option value="300px">متوسط (300px)</option>
+                    <option value="150px">صغير (150px)</option>
+                    <option value="60px">صغير جداً (60px)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
 
+          {/* Text Content Editing for non-image elements */}
+          {!selectedEl.isImage && (
+            <div className="space-y-2">
+              <label className="text-[11px] font-bold text-stone-300 block">
+                النص / المحتوى المباشر:
+              </label>
+              <textarea
+                value={editVal}
+                onChange={(e) => setEditVal(e.target.value)}
+                className="w-full bg-white text-[#1C1613] font-bold text-xs p-2.5 rounded-xl outline-none border border-[#D2B48C] h-16 resize-y"
+              />
+            </div>
+          )}
+
+          {/* Typography & Dimensions Controls */}
           <div className="grid grid-cols-2 gap-2">
+            {!selectedEl.isImage && (
+              <div>
+                <label className="text-[10px] font-bold text-stone-300 block mb-1">حجم الخط:</label>
+                <select
+                  value={fontSizeVal}
+                  onChange={(e) => setFontSizeVal(e.target.value)}
+                  className="w-full bg-[#5C4033] text-[#F8F5EE] text-[11px] font-bold p-1.5 rounded-xl border border-[#D2B48C]/40 outline-none"
+                >
+                  <option value="">تلقائي</option>
+                  <option value="11px">صغير جداً (11px)</option>
+                  <option value="13px">صغير (13px)</option>
+                  <option value="15px">متوسط (15px)</option>
+                  <option value="18px">كبير (18px)</option>
+                  <option value="22px">كبير جداً (22px)</option>
+                  <option value="28px">عنوان ضخم (28px)</option>
+                </select>
+              </div>
+            )}
+
+            {!selectedEl.isImage && (
+              <div>
+                <label className="text-[10px] font-bold text-stone-300 block mb-1">سمك الخط:</label>
+                <select
+                  value={fontWeightVal}
+                  onChange={(e) => setFontWeightVal(e.target.value)}
+                  className="w-full bg-[#5C4033] text-[#F8F5EE] text-[11px] font-bold p-1.5 rounded-xl border border-[#D2B48C]/40 outline-none"
+                >
+                  <option value="">تلقائي</option>
+                  <option value="400">عادي (Normal)</option>
+                  <option value="600">متوسط (Medium)</option>
+                  <option value="700">عريض (Bold)</option>
+                  <option value="900">عريض جداً (Black)</option>
+                </select>
+              </div>
+            )}
+
             <div>
-              <label className="text-[10px] font-bold text-stone-300 block mb-1">حجم الخط:</label>
+              <label className="text-[10px] font-bold text-stone-300 block mb-1">
+                شكل الحواف (Radius):
+              </label>
               <select
-                value={fontSizeVal}
-                onChange={(e) => setFontSizeVal(e.target.value)}
-                className="w-full bg-[#5C4033] text-[#F8F5EE] text-xs font-bold p-1.5 rounded-xl border border-[#D2B48C]/40 outline-none"
+                value={borderRadiusVal}
+                onChange={(e) => setBorderRadiusVal(e.target.value)}
+                className="w-full bg-[#5C4033] text-[#F8F5EE] text-[11px] font-bold p-1.5 rounded-xl border border-[#D2B48C]/40 outline-none"
               >
                 <option value="">تلقائي</option>
-                <option value="11px">صغير جداً (11px)</option>
-                <option value="13px">صغير (13px)</option>
-                <option value="15px">متوسط (15px)</option>
-                <option value="18px">كبير (18px)</option>
-                <option value="22px">كبير جداً (22px)</option>
-                <option value="28px">عنوان ضخم (28px)</option>
+                <option value="0px">حادة (0px)</option>
+                <option value="8px">منحنية خفيفة (8px)</option>
+                <option value="16px">دائرية أنيقة (16px)</option>
+                <option value="24px">دائرية جداً (24px)</option>
+                <option value="9999px">كبسولة / دائرة كاملة</option>
               </select>
             </div>
 
             <div>
               <label className="text-[10px] font-bold text-stone-300 block mb-1">
-                تكبير الأيقونة/العنصر:
+                التكبير / الحجم:
               </label>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  onClick={() => setScaleVal((prev) => Math.max(0.6, prev - 0.1))}
+                  onClick={() => setScaleVal((prev) => Math.max(0.5, prev - 0.1))}
                   className="bg-[#5C4033] text-white p-1.5 rounded-lg text-xs hover:bg-[#D2B48C] hover:text-[#1C1613] font-bold cursor-pointer"
                   title="تصغير"
                 >
@@ -774,16 +992,57 @@ export function LiveEditAdminBar() {
             </div>
           </div>
 
-          <div className="flex gap-2 pt-1">
+          {/* Color palette pickers */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-stone-300 block">
+              تغيير اللون المباشر:
+            </label>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {[
+                { name: "ذهبي بيتك", color: "#D2B48C" },
+                { name: "بني دافئ", color: "#5C4033" },
+                { name: "أسود داكن", color: "#1C1613" },
+                { name: "أبيض ناصع", color: "#FFFFFF" },
+                { name: "أخضر نجاح", color: "#16a34a" },
+                { name: "تنبيه أحمر", color: "#dc2626" },
+              ].map((c, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => {
+                    if (selectedEl.isIcon) {
+                      setTextColorVal(c.color);
+                    } else {
+                      setTextColorVal(c.color);
+                    }
+                  }}
+                  className="w-6 h-6 rounded-full border-2 border-white/50 shadow hover:scale-110 transition cursor-pointer"
+                  style={{ backgroundColor: c.color }}
+                  title={c.name}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex gap-2 pt-2 border-t border-[#5C4033]">
             <button
               onClick={handleApplyDomEdits}
-              className="flex-1 bg-[#D2B48C] text-[#1C1613] font-black py-2 rounded-xl text-xs hover:bg-[#c5a378] transition cursor-pointer"
+              className="flex-1 bg-[#D2B48C] text-[#1C1613] font-black py-2.5 rounded-xl text-xs hover:bg-[#c5a378] transition cursor-pointer shadow"
             >
               تطبيق وحفظ التغيير
             </button>
             <button
+              onClick={handleDeleteSelectedElement}
+              className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-3 py-2.5 rounded-xl text-xs cursor-pointer flex items-center gap-1"
+              title="حذف هذا العنصر نهائياً"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              حذف
+            </button>
+            <button
               onClick={() => setSelectedEl(null)}
-              className="bg-[#5C4033] text-white font-bold px-3 py-2 rounded-xl text-xs cursor-pointer"
+              className="bg-[#5C4033] text-white font-bold px-3 py-2.5 rounded-xl text-xs cursor-pointer"
             >
               إلغاء
             </button>

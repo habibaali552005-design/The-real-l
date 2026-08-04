@@ -22,6 +22,19 @@ import { useState, useEffect } from "react";
 import { ProductQuickViewModal } from "@/components/ProductQuickViewModal";
 import { Product, isWomenProduct } from "@/types";
 import { MarketplaceStore } from "@/lib/marketplaceStore";
+import { checkIsSuperAdmin } from "@/lib/rbac";
+
+function useIsAdmin() {
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) {
+        setIsAdmin(data.user.email === "m.f.30121998@gmail.com" || checkIsSuperAdmin(data.user));
+      }
+    });
+  }, []);
+  return { isAdmin };
+}
 
 const womenProductsQuery = {
   queryKey: ["products", "women"],
@@ -90,6 +103,7 @@ export function WomenLoungePage() {
   // Privacy gate state
   const [confirmed, setConfirmed] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
+    if (MarketplaceStore.getUserGender() === "female") return true;
     return sessionStorage.getItem("women_lounge_confirmed") === "true";
   });
 
@@ -102,8 +116,7 @@ export function WomenLoungePage() {
   // User Gender check
   const userGender = MarketplaceStore.getUserGender();
   const { isAdmin } = useIsAdmin();
-  const simRole = MarketplaceStore.getSimulationRole();
-  const canEdit = isAdmin && simRole !== "visitor" && simRole !== "customer";
+  const canEdit = isAdmin;
 
   // Subcategory and search state
   const [selectedSubcat, setSelectedSubcat] = useState<string>("الكل");

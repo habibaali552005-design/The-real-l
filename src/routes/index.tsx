@@ -21,6 +21,7 @@ const homeQuery = {
       supabase.from("categories").select("*").order("sort_order"),
     ]);
     let categoryList = (cats ?? []) as { id: string; name: string; icon?: string }[];
+    categoryList = MarketplaceStore.filterDeletedCategories(categoryList);
     if (categoryList.length === 0) {
       const rootCats = MarketplaceStore.getCategories().filter((c) => !c.parentId);
       categoryList = rootCats.map((c) => ({ id: c.id, name: c.name, icon: c.icon }));
@@ -76,13 +77,16 @@ function Home() {
   const rawLatest = data.latest || [];
   const categories = data.categories || [];
 
-  // Exclude Women Lounge products from main home page feed for female privacy
-  const featured = rawFeatured.filter((p) => !isWomenProduct(p));
-  const latest = rawLatest.filter((p) => !isWomenProduct(p));
+  // Include Women Lounge products in main home page feed ONLY for female users
+  const userGender = MarketplaceStore.getUserGender();
+  const isFemale = userGender === "female";
+
+  const featured = rawFeatured.filter((p) => isFemale || !isWomenProduct(p));
+  const latest = rawLatest.filter((p) => isFemale || !isWomenProduct(p));
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
-  const [themeConf, setThemeConf] = useState(() => MarketplaceStore.getDefaultThemeSettings());
+  const [themeConf, setThemeConf] = useState(() => MarketplaceStore.getSiteThemeSettings());
 
   const queryClient = useQueryClient();
 
@@ -203,28 +207,34 @@ function Home() {
               </Link>
             </div>
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
-              {categories.map((c) => {
-                const Icon = getCategoryIcon(c.name);
-                return (
-                  <Link
-                    key={c.id}
-                    to="/products"
-                    search={{ cat: c.name }}
-                    className="group bg-card border border-brand-dark/5 rounded-2xl p-4 flex flex-col items-center gap-2 hover:border-brand-accent hover:shadow-md transition"
-                    style={{ backgroundColor: themeConf.homepageCard }}
-                  >
-                    <div className="w-14 h-14 rounded-2xl bg-brand-primary/10 grid place-items-center group-hover:bg-brand-accent/20 transition">
-                      <Icon className="w-7 h-7 text-brand-primary" />
-                    </div>
-                    <span
-                      className="text-xs md:text-sm font-bold text-center line-clamp-2"
-                      style={{ color: themeConf.homepageText }}
+              {categories
+                .filter(
+                  (c) =>
+                    userGender !== "male" ||
+                    (!c.name.includes("نساء") && c.slug !== "women" && c.id !== "cat-women"),
+                )
+                .map((c) => {
+                  const Icon = getCategoryIcon(c.name);
+                  return (
+                    <Link
+                      key={c.id}
+                      to="/products"
+                      search={{ cat: c.name }}
+                      className="group bg-card border border-brand-dark/5 rounded-2xl p-4 flex flex-col items-center gap-2 hover:border-brand-accent hover:shadow-md transition"
+                      style={{ backgroundColor: themeConf.homepageCard }}
                     >
-                      {c.name}
-                    </span>
-                  </Link>
-                );
-              })}
+                      <div className="w-14 h-14 rounded-2xl bg-brand-primary/10 grid place-items-center group-hover:bg-brand-accent/20 transition">
+                        <Icon className="w-7 h-7 text-brand-primary" />
+                      </div>
+                      <span
+                        className="text-xs md:text-sm font-bold text-center line-clamp-2"
+                        style={{ color: themeConf.homepageText }}
+                      >
+                        {c.name}
+                      </span>
+                    </Link>
+                  );
+                })}
             </div>
           </section>
         );

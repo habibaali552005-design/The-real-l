@@ -73,12 +73,7 @@ export function CategoriesPage() {
     };
   }, []);
 
-  const simRole = mounted ? MarketplaceStore.getSimulationRole() : "visitor";
-  const canManage =
-    mounted &&
-    (isAdmin || userRole === "admin" || userRole === "seller") &&
-    simRole !== "visitor" &&
-    simRole !== "customer";
+  const canManage = mounted && isAdmin;
 
   // Selected Category Node
   const currentCategory = useMemo(() => {
@@ -86,10 +81,17 @@ export function CategoriesPage() {
     return categories.find((c) => c.id === selectedCatId) || null;
   }, [selectedCatId, categories]);
 
-  // Subcategories of selected or root level
+  // Subcategories of selected or root level (With gender-protection for Women section)
   const activeSubcategories = useMemo(() => {
-    return categories.filter((c) => c.parentId === selectedCatId);
-  }, [selectedCatId, categories]);
+    const rawList = categories.filter((c) => c.parentId === selectedCatId);
+    const userGender = MarketplaceStore.getUserGender();
+    if (!selectedCatId && userGender === "male" && !isAdmin) {
+      return rawList.filter(
+        (c) => c.id !== "cat-women" && c.slug !== "women" && !c.name.includes("نساء"),
+      );
+    }
+    return rawList;
+  }, [selectedCatId, categories, isAdmin]);
 
   // Breadcrumb chain
   const breadcrumbs = useMemo(() => {

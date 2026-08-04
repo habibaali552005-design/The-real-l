@@ -57,10 +57,15 @@ export interface BillingSettings {
   billingCycle: "monthly" | "weekly" | "custom";
   outstandingBalanceRuleLimit: number;
   commissionRateDefault: number;
-  subscriptionPlanPrice: number;
-  paymentMethods: string[];
+  activePaymentMethods: Array<"cod" | "card" | "wallet" | "instapay">;
+  commissionRates: {
+    merchant: number;
+    affiliate: number;
+    factory: number;
+  };
   automaticRemindersEnabled: boolean;
   lateFeePercentage: number;
+  paymentMethods?: string[];
 }
 
 export interface CommissionPayment {
@@ -362,12 +367,12 @@ export class MultiVendorStorage {
       billingCycle: "monthly",
       outstandingBalanceRuleLimit: 5000,
       commissionRateDefault: 10, // 10%
-      subscriptionPlanPrice: 200,
-      paymentMethods: [
-        "فودافون كاش (Vodafone Cash)",
-        "إنستا باي (InstaPay)",
-        "تحويل بنكي (Bank Transfer)",
-      ],
+      activePaymentMethods: ["cod"],
+      commissionRates: {
+        merchant: 10,
+        affiliate: 5,
+        factory: 7,
+      },
       automaticRemindersEnabled: true,
       lateFeePercentage: 5,
     };

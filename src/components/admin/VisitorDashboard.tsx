@@ -43,8 +43,7 @@ export function VisitorDashboard() {
         planId: "plan-trial",
         planExpiresAt: new Date(Date.now() + 86400000 * 30).toISOString(),
         warehouses: [],
-        permissions: ["sell_products", "use_ai_studio_limited"],
-        aiCredits: 100,
+        permissions: ["sell_products"],
       };
 
       const existingSellers = MarketplaceStore.getSellers();

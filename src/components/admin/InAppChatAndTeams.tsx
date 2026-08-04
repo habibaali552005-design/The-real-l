@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   MessageSquare,
   Send,
@@ -56,15 +56,7 @@ export function InAppChatAndTeams({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    loadChatData();
-  }, [sellerId]);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [activeThreadId, threads]);
-
-  const loadChatData = () => {
+  const loadChatData = useCallback(() => {
     const allThreads = MultiVendorStorage.getChatThreads();
     // Enforce data isolation: Sellers only see their own threads & team channels.
     // Super admins see everything.
@@ -76,7 +68,11 @@ export function InAppChatAndTeams({
     }
 
     setTeams(MultiVendorStorage.getTeams(sellerId));
-  };
+  }, [activeThreadId, isSuperAdmin, sellerId]);
+
+  useEffect(() => {
+    loadChatData();
+  }, [loadChatData]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -314,15 +310,18 @@ export function InAppChatAndTeams({
         <div className="flex justify-between items-center">
           <h2 className="font-bold text-sm text-brand-dark flex items-center gap-2">
             <MessageSquare className="w-4 h-4 text-brand-primary" />
-            غرف الشات وفرق العمل
+            غرف الشات والدعم الفني
           </h2>
-          <button
-            onClick={() => setShowCreateTeam(!showCreateTeam)}
-            className="text-[10px] bg-brand-primary text-brand-bg px-2.5 py-1.5 rounded-xl font-bold flex items-center gap-1 transition hover:opacity-90"
-          >
-            <Plus className="w-3 h-3" />
-            فريق جديد
-          </button>
+          {(isSuperAdmin ||
+            MarketplaceStore.getSellers().find((s) => s.id === sellerId)?.isVerifiedCompany) && (
+            <button
+              onClick={() => setShowCreateTeam(!showCreateTeam)}
+              className="text-[10px] bg-brand-primary text-brand-bg px-2.5 py-1.5 rounded-xl font-bold flex items-center gap-1 transition hover:opacity-90 cursor-pointer"
+            >
+              <Plus className="w-3 h-3" />
+              فريق جديد
+            </button>
+          )}
         </div>
 
         {/* Quick Ask AI button */}

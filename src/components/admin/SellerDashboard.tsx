@@ -1,28 +1,36 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { MultiVendorStorage } from "@/lib/multiVendorStorage";
 import { safeRandomUUID } from "@/lib/safeId";
 import {
   Building,
   CreditCard,
-  Warehouse as WarehouseIcon,
   Plus,
   Trash2,
   Sliders,
   CheckCircle,
-  HelpCircle,
   BarChart3,
-  Flame,
-  LayoutGrid,
-  Zap,
+  Send,
+  ShieldCheck,
+  FileText,
+  BadgeCheck,
+  Clock,
+  XCircle,
+  AlertCircle,
+  HelpCircle,
+  ShoppingBag,
+  Phone,
+  MapPin,
+  User,
+  ExternalLink,
 } from "lucide-react";
 import {
   MarketplaceStore,
   Seller,
-  SubscriptionPlan,
-  Warehouse,
+  SellerRequest,
   ProductMetadata,
   ProductVariant,
+  SellerCustomerOrder,
 } from "@/lib/marketplaceStore";
 import { toast } from "sonner";
 import { formatEGP } from "@/lib/cart";
@@ -58,15 +66,14 @@ interface OrderRecord {
   items: string | OrderItem[];
 }
 
-export function SellerDashboard({
-  sellerId,
-  products,
-  onOpenAIStudio,
-  onOpenBatchEditor,
-}: SellerDashboardProps) {
+export function SellerDashboard({ sellerId, products }: SellerDashboardProps) {
   const [activeTab, setActiveTab] = useState<
-    "analytics" | "variants" | "warehouses" | "subscription" | "store_payments"
-  >("analytics");
+    "analytics" | "customer_orders" | "seller_type" | "seller_requests" | "variants"
+  >("customer_orders");
+
+  const [customerOrders, setCustomerOrders] = useState<SellerCustomerOrder[]>(() =>
+    MarketplaceStore.getSellerCustomerOrders(sellerId),
+  );
 
   const [sellerStats, setSellerStats] = useState({
     monthlySales: 0,
@@ -74,76 +81,18 @@ export function SellerDashboard({
     loading: true,
   });
 
-  useEffect(() => {
-    const loadSellerStats = async () => {
-      try {
-        const { data } = await supabase.from("orders").select("*");
-        if (data) {
-          const list = (data as unknown as OrderRecord[]).filter((order) => {
-            try {
-              const itemsArray = (
-                typeof order.items === "string" ? JSON.parse(order.items) : order.items
-              ) as OrderItem[];
-              return itemsArray.some(
-                (item: OrderItem) => MultiVendorStorage.getProductSeller(item.id) === sellerId,
-              );
-            } catch {
-              return false;
-            }
-          });
-
-          let totalSales = 0;
-          let pendingCount = 0;
-
-          list.forEach((order) => {
-            if (order.status !== "cancelled") {
-              try {
-                const itemsArray = (
-                  typeof order.items === "string" ? JSON.parse(order.items) : order.items
-                ) as OrderItem[];
-                itemsArray.forEach((item: OrderItem) => {
-                  if (MultiVendorStorage.getProductSeller(item.id) === sellerId) {
-                    totalSales += (Number(item.price) || 0) * (Number(item.quantity) || 1);
-                  }
-                });
-              } catch (e) {
-                // ignore parse errors
-              }
-            }
-            if (order.status === "pending" || order.status === "processing") {
-              pendingCount++;
-            }
-          });
-
-          setSellerStats({
-            monthlySales: totalSales,
-            pendingOrdersCount: pendingCount,
-            loading: false,
-          });
-        } else {
-          setSellerStats({ monthlySales: 0, pendingOrdersCount: 0, loading: false });
-        }
-      } catch (err) {
-        console.error("Error loading seller stats:", err);
-        setSellerStats({ monthlySales: 0, pendingOrdersCount: 0, loading: false });
-      }
-    };
-    if (sellerId) {
-      loadSellerStats();
-    } else {
-      setSellerStats({ monthlySales: 0, pendingOrdersCount: 0, loading: false });
-    }
-  }, [sellerId, products]);
-
-  // Sync state
   const [seller, setSeller] = useState<Seller | null>(null);
-  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [requestsList, setRequestsList] = useState<SellerRequest[]>([]);
 
-  // Warehouse form
-  const [newWhName, setNewWhName] = useState("");
-  const [newWhLoc, setNewWhLoc] = useState("");
-  const [newWhCap, setNewWhCap] = useState(1000);
+  // Company verification form
+  const [commRegister, setCommRegister] = useState("");
+  const [taxCard, setTaxCard] = useState("");
+
+  // New Request form
+  const [reqType, setReqType] = useState<"category" | "payment_method">("category");
+  const [reqTitle, setReqTitle] = useState("");
+  const [reqDetails, setReqDetails] = useState("");
+  const [reqSection, setReqSection] = useState<"general" | "women">("general");
 
   // Variant helper
   const [selectedProductId, setSelectedProductId] = useState<string>("");
@@ -153,24 +102,98 @@ export function SellerDashboard({
   const [newVarSku, setNewVarSku] = useState("");
   const [newVarPrice, setNewVarPrice] = useState(0);
   const [newVarStock, setNewVarStock] = useState(5);
-  const [newVarWarehouse, setNewVarWarehouse] = useState("");
   const [newVarAttrKey, setNewVarAttrKey] = useState("اللون");
   const [newVarAttrVal, setNewVarAttrVal] = useState("");
 
-  useEffect(() => {
+  const loadData = useCallback(async () => {
     const list = MarketplaceStore.getSellers();
     const active = list.find((s) => s.id === sellerId) || list[0];
     setSeller(active || null);
 
-    setPlans(MarketplaceStore.getPlans());
-    setWarehouses(MarketplaceStore.getWarehouses());
+    if (active) {
+      setCommRegister(active.commercialRegistration || "");
+      setTaxCard(active.taxCard || "");
+    }
+
+    setRequestsList(MarketplaceStore.getSellerRequests().filter((r) => r.sellerId === sellerId));
 
     if (products.length > 0) {
       setSelectedProductId(products[0].id);
     }
+
+    try {
+      const { data } = await supabase.from("orders").select("*");
+      if (data) {
+        const orderList = (data as unknown as OrderRecord[]).filter((order) => {
+          try {
+            const itemsArray = (
+              typeof order.items === "string" ? JSON.parse(order.items) : order.items
+            ) as OrderItem[];
+            return itemsArray.some(
+              (item: OrderItem) => MultiVendorStorage.getProductSeller(item.id) === sellerId,
+            );
+          } catch {
+            return false;
+          }
+        });
+
+        let totalSales = 0;
+        let pendingCount = 0;
+
+        orderList.forEach((order) => {
+          if (order.status !== "cancelled") {
+            try {
+              const itemsArray = (
+                typeof order.items === "string" ? JSON.parse(order.items) : order.items
+              ) as OrderItem[];
+              itemsArray.forEach((item: OrderItem) => {
+                if (MultiVendorStorage.getProductSeller(item.id) === sellerId) {
+                  totalSales += (Number(item.price) || 0) * (Number(item.quantity) || 1);
+                }
+              });
+            } catch {
+              // ignore parse errors
+            }
+          }
+          if (order.status === "pending" || order.status === "processing") {
+            pendingCount++;
+          }
+        });
+
+        setSellerStats({
+          monthlySales: totalSales,
+          pendingOrdersCount: pendingCount,
+          loading: false,
+        });
+      } else {
+        setSellerStats({ monthlySales: 0, pendingOrdersCount: 0, loading: false });
+      }
+    } catch {
+      setSellerStats({ monthlySales: 0, pendingOrdersCount: 0, loading: false });
+    }
   }, [sellerId, products]);
 
-  // Load product metadata on dropdown select
+  useEffect(() => {
+    loadData();
+
+    const handleReqUpdate = () => {
+      setRequestsList(MarketplaceStore.getSellerRequests().filter((r) => r.sellerId === sellerId));
+    };
+
+    const handleOrdersUpdate = () => {
+      setCustomerOrders(MarketplaceStore.getSellerCustomerOrders(sellerId));
+    };
+
+    window.addEventListener("beitak-seller-requests-updated", handleReqUpdate);
+    window.addEventListener("beitak-seller-orders-updated", handleOrdersUpdate);
+    window.addEventListener("storage", handleOrdersUpdate);
+    return () => {
+      window.removeEventListener("beitak-seller-requests-updated", handleReqUpdate);
+      window.removeEventListener("beitak-seller-orders-updated", handleOrdersUpdate);
+      window.removeEventListener("storage", handleOrdersUpdate);
+    };
+  }, [sellerId, loadData]);
+
   useEffect(() => {
     if (selectedProductId) {
       setProductMeta(MarketplaceStore.getProductMetadata(selectedProductId));
@@ -184,67 +207,56 @@ export function SellerDashboard({
     setSeller(updated);
   };
 
-  // 1. Warehouses CRUD
-  const handleCreateWarehouse = (e: React.FormEvent) => {
+  const handleSubmitCompanyDocs = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newWhName.trim()) return;
-
-    const newWh: Warehouse = {
-      id: `wh-${safeRandomUUID()}`,
-      name: newWhName.trim(),
-      location: newWhLoc.trim(),
-      capacity: Number(newWhCap),
-    };
-
-    const updatedWhs = [...warehouses, newWh];
-    MarketplaceStore.saveWarehouses(updatedWhs);
-    setWarehouses(updatedWhs);
-
-    if (seller) {
-      const updatedSeller: Seller = {
-        ...seller,
-        warehouses: [...seller.warehouses, newWh.id],
-      };
-      saveSeller(updatedSeller);
-    }
-
-    setNewWhName("");
-    setNewWhLoc("");
-    setNewWhCap(1000);
-    toast.success("تم إنشاء وتخصيص مستودع جديد لمتجرك!");
-  };
-
-  const deleteWarehouse = (id: string) => {
-    const updatedWhs = warehouses.filter((w) => w.id !== id);
-    MarketplaceStore.saveWarehouses(updatedWhs);
-    setWarehouses(updatedWhs);
-
-    if (seller) {
-      const updatedSeller: Seller = {
-        ...seller,
-        warehouses: seller.warehouses.filter((wId) => wId !== id),
-      };
-      saveSeller(updatedSeller);
-    }
-    toast.success("تم إزالة مستودع التخزين");
-  };
-
-  // 2. Subscription plans & Credits purchasing
-  const purchasePlanUpgrade = (planId: string) => {
     if (!seller) return;
-    const selectedPlan = plans.find((p) => p.id === planId);
-    if (!selectedPlan) return;
+    if (!commRegister.trim() || !taxCard.trim()) {
+      toast.error("يرجى إدخال رقم السجل التجاري ورقم البطاقة الضريبية");
+      return;
+    }
 
     const updatedSeller: Seller = {
       ...seller,
-      planId,
-      planExpiresAt: new Date(Date.now() + 86400000 * 30).toISOString(), // 30 days extension
+      commercialRegistration: commRegister.trim(),
+      taxCard: taxCard.trim(),
+      sellerType: "factory",
     };
     saveSeller(updatedSeller);
-    toast.success(`مبروك! تم ترقية اشتراك متجرك بنجاح إلى: ${selectedPlan.name}`);
+
+    // Send request to SuperAdmin for verification
+    MarketplaceStore.addSellerRequest({
+      sellerId: seller.id,
+      sellerName: seller.storeName,
+      requestType: "company_verification",
+      title: "طلب توثيق شركة / مصنع معتمد",
+      details: `رقم السجل التجاري: ${commRegister.trim()} | رقم البطاقة الضريبية: ${taxCard.trim()}`,
+    });
+
+    toast.success("تم إرسال أوراق الشركة للسوبر أدمن لمراجعتها وتوثيق الحساب!");
   };
 
-  // 3. Product Variant & Specifications Configuration
+  const handleCreateRequest = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!seller) return;
+    if (!reqTitle.trim() || !reqDetails.trim()) {
+      toast.error("يرجى كتابة عنوان الطلب والتفاصيل كاملة");
+      return;
+    }
+
+    MarketplaceStore.addSellerRequest({
+      sellerId: seller.id,
+      sellerName: seller.storeName,
+      requestType: reqType,
+      title: reqTitle.trim(),
+      details: reqDetails.trim(),
+      targetSection: reqSection,
+    });
+
+    setReqTitle("");
+    setReqDetails("");
+    toast.success("تم رفع الطلب بنجاح للسوبر أدمن وسيطبق فور الموافقة عليه!");
+  };
+
   const addVariant = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedProductId || !productMeta) return;
@@ -255,7 +267,7 @@ export function SellerDashboard({
       price: Number(newVarPrice),
       stock: Number(newVarStock),
       attributes: { [newVarAttrKey]: newVarAttrVal.trim() || "افتراضي" },
-      warehouseId: newVarWarehouse || warehouses[0]?.id || "warehouse-main",
+      warehouseId: "main",
     };
 
     const updatedMeta: ProductMetadata = {
@@ -270,7 +282,7 @@ export function SellerDashboard({
     setNewVarPrice(0);
     setNewVarStock(5);
     setNewVarAttrVal("");
-    toast.success("تم توليد وإدراج المتغير الفرعي للمنتج!");
+    toast.success("تم إضافة المتغير للمنتج!");
   };
 
   const deleteVariant = (id: string) => {
@@ -286,20 +298,51 @@ export function SellerDashboard({
     toast.success("تم حذف المتغير");
   };
 
-  const activePlan = plans.find((p) => p.id === seller?.planId);
+  const getSellerTypeBadge = () => {
+    if (!seller) return null;
+    if (seller.isVerifiedCompany || seller.sellerType === "factory") {
+      return (
+        <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
+          <BadgeCheck className="w-4 h-4 text-emerald-400" />
+          شركة / مصنع معتمد
+        </span>
+      );
+    }
+    if (seller.sellerType === "affiliate") {
+      return (
+        <span className="bg-purple-500/20 text-purple-300 border border-purple-400/30 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
+          <ShieldCheck className="w-4 h-4 text-purple-400" />
+          مسوق بالعمولة (Affiliate)
+        </span>
+      );
+    }
+    return (
+      <span className="bg-amber-500/20 text-amber-300 border border-amber-400/30 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
+        <Building className="w-4 h-4 text-amber-400" />
+        تاجر فردي (Merchant)
+      </span>
+    );
+  };
 
   return (
     <div className="bg-card rounded-3xl p-5 border border-brand-dark/5 space-y-6">
       {/* Seller Header Info Panel */}
       {seller && (
-        <div className="bg-gradient-to-r from-brand-dark to-brand-primary text-brand-bg rounded-2xl p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="space-y-1">
-            <h2 className="text-lg md:text-xl font-bold">{seller.storeName}</h2>
-            <p className="text-xs text-brand-bg/75">
-              مالك المتجر: {seller.ownerName} | الباقة الحالية: {activePlan?.name || seller.planId}
+        <div className="bg-gradient-to-r from-brand-dark via-brand-primary/90 to-brand-primary text-brand-bg rounded-2xl p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-lg md:text-xl font-bold">{seller.storeName}</h2>
+              {getSellerTypeBadge()}
+            </div>
+            <p className="text-xs text-brand-bg/80">
+              صاحب الحساب: <span className="font-bold">{seller.ownerName}</span> | البريد:{" "}
+              <span className="dir-ltr inline-block">{seller.email}</span>
             </p>
-            <p className="text-[10px] text-brand-bg/50">
-              تاريخ انتهاء الاشتراك: {new Date(seller.planExpiresAt).toLocaleDateString("ar-EG")}
+            <p className="text-[11px] text-brand-bg/70">
+              نسبة عمولة المنصة المحددة:{" "}
+              <span className="font-extrabold text-brand-accent">
+                {seller.commissionCut || 10}%
+              </span>
             </p>
           </div>
         </div>
@@ -308,21 +351,26 @@ export function SellerDashboard({
       {/* Tabs navigation */}
       <div className="flex gap-2 border-b border-brand-dark/5 pb-3 overflow-x-auto no-scrollbar">
         {[
+          {
+            key: "customer_orders",
+            label: `طلبات العملاء الجدد والتوصيل (${customerOrders.length})`,
+            icon: ShoppingBag,
+            highlight: customerOrders.filter((o) => o.status === "pending").length > 0,
+          },
           { key: "analytics", label: "أداء المبيعات والتقارير", icon: BarChart3 },
-          { key: "store_payments", label: "خيارات الدفع والعمولة", icon: CreditCard },
-          { key: "variants", label: "المتغيرات والخصائص الفرعية", icon: Sliders },
-          { key: "warehouses", label: "مستودعات المخزون الخاص بك", icon: WarehouseIcon },
-          { key: "subscription", label: "ترقية الباقة والاشتراكات", icon: CreditCard },
+          { key: "seller_type", label: "نوع الحساب وتراخيص الشركة", icon: FileText },
+          { key: "seller_requests", label: "طلباتي للسوبر أدمن", icon: Send },
+          { key: "variants", label: "متغيرات المنتجات والخصائص", icon: Sliders },
         ].map((t) => (
           <button
             key={t.key}
             onClick={() =>
               setActiveTab(
                 t.key as
-                  "analytics" | "store_payments" | "variants" | "warehouses" | "subscription",
+                  "customer_orders" | "analytics" | "seller_type" | "seller_requests" | "variants",
               )
             }
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
               activeTab === t.key
                 ? "bg-brand-primary text-brand-bg shadow-sm"
                 : "bg-brand-bg text-brand-dark border border-brand-dark/5 hover:border-brand-accent"
@@ -330,20 +378,229 @@ export function SellerDashboard({
           >
             <t.icon className="w-4 h-4" />
             {t.label}
+            {t.highlight && <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>}
           </button>
         ))}
       </div>
 
+      {/* CUSTOMER ORDERS TAB WITH FULL CUSTOMER DETAILS */}
+      {activeTab === "customer_orders" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between bg-brand-bg p-4 rounded-2xl border border-brand-dark/10">
+            <div>
+              <h3 className="font-extrabold text-sm text-brand-dark flex items-center gap-2">
+                <ShoppingBag className="w-4 h-4 text-brand-primary" />
+                طلبات الشراء الواردة من العملاء وبيانات التوصيل الكاملة
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                تظهر هنا جميع طلبات الشراء التي تتضمن منتجات من متجرك مع بيانات الاتصال والعنوان
+                بالكامل
+              </p>
+            </div>
+            <span className="bg-brand-primary text-white text-xs font-black px-3 py-1 rounded-xl">
+              إجمالي الطلبات: {customerOrders.length}
+            </span>
+          </div>
+
+          {customerOrders.length === 0 ? (
+            <div className="text-center py-12 bg-card rounded-2xl border border-dashed border-brand-dark/15 space-y-2">
+              <ShoppingBag className="w-12 h-12 text-muted-foreground mx-auto opacity-40" />
+              <p className="text-sm font-bold text-brand-dark">لا توجد طلبات عملاء حتى الآن</p>
+              <p className="text-xs text-muted-foreground">
+                عندما يطلب أحد العملاء منتجاً من متجرك، ستصلك البيانات الكاملة والإشعار فوراً هنا.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              {customerOrders.map((ord) => {
+                const statusColors = {
+                  pending: "bg-amber-100 text-amber-900 border-amber-300",
+                  processing: "bg-blue-100 text-blue-900 border-blue-300",
+                  shipped: "bg-purple-100 text-purple-900 border-purple-300",
+                  delivered: "bg-emerald-100 text-emerald-900 border-emerald-300",
+                  cancelled: "bg-red-100 text-red-900 border-red-300",
+                };
+
+                const statusLabels = {
+                  pending: "جديد (قيد المراجعة)",
+                  processing: "جاري التجهيز",
+                  shipped: "تم الشحن",
+                  delivered: "تم التسليم بنجاح",
+                  cancelled: "ملغي",
+                };
+
+                return (
+                  <div
+                    key={ord.id}
+                    className="bg-card border border-brand-dark/15 rounded-3xl p-5 shadow-sm space-y-4"
+                  >
+                    {/* Header bar */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-brand-dark/10 pb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="font-black text-sm text-brand-dark bg-secondary px-3 py-1 rounded-xl dir-ltr">
+                          #{ord.orderNumber}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(ord.createdAt).toLocaleString("ar-EG")}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`text-xs font-extrabold px-3 py-1 rounded-xl border ${
+                            statusColors[ord.status] || "bg-secondary text-brand-dark"
+                          }`}
+                        >
+                          {statusLabels[ord.status] || ord.status}
+                        </span>
+
+                        <select
+                          value={ord.status}
+                          onChange={(e) => {
+                            const newStatus = e.target.value as SellerCustomerOrder["status"];
+                            MarketplaceStore.updateSellerOrderStatus(ord.id, newStatus);
+                            setCustomerOrders(MarketplaceStore.getSellerCustomerOrders(sellerId));
+                            toast.success("تم تحديث حالة الطلب بنجاح");
+                          }}
+                          className="text-xs font-bold bg-white border border-brand-dark/20 rounded-xl px-2.5 py-1 outline-none"
+                        >
+                          <option value="pending">جديد (قيد المراجعة)</option>
+                          <option value="processing">جاري التجهيز</option>
+                          <option value="shipped">تم الشحن</option>
+                          <option value="delivered">تم التسليم</option>
+                          <option value="cancelled">إلغاء</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Customer Info Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-brand-bg/60 p-4 rounded-2xl border border-brand-dark/5">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 font-bold text-xs text-brand-dark">
+                          <User className="w-4 h-4 text-brand-primary" />
+                          <span>بيانات العميل:</span>
+                        </div>
+                        <p className="text-xs font-black text-brand-dark">{ord.customerName}</p>
+                        <div className="flex items-center gap-2 flex-wrap text-xs">
+                          <a
+                            href={`tel:${ord.phone}`}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1 rounded-lg flex items-center gap-1 shadow-xs transition"
+                          >
+                            <Phone className="w-3 h-3" />
+                            اتصال: {ord.phone}
+                          </a>
+                          <a
+                            href={`https://wa.me/2${ord.phone.replace(/^0/, "")}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="bg-green-600 hover:bg-green-700 text-white font-bold px-3 py-1 rounded-lg flex items-center gap-1 shadow-xs transition"
+                          >
+                            واتساب
+                          </a>
+                        </div>
+                        {ord.backupPhone && (
+                          <p className="text-[11px] text-muted-foreground">
+                            رقم احتياطي: <span className="font-bold">{ord.backupPhone}</span>
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 font-bold text-xs text-brand-dark">
+                          <MapPin className="w-4 h-4 text-brand-primary" />
+                          <span>عنوان التوصيل والشحن:</span>
+                        </div>
+                        <p className="text-xs text-brand-dark font-medium leading-relaxed">
+                          <span className="font-bold">{ord.governorate}</span> - {ord.area}
+                          <br />
+                          <span className="text-muted-foreground">{ord.address}</span>
+                        </p>
+                        {ord.paymentMethod && (
+                          <p className="text-[11px] font-bold text-brand-primary">
+                            طريقة الدفع: {ord.paymentMethod}
+                          </p>
+                        )}
+                        {ord.notes && (
+                          <p className="text-[11px] bg-amber-50 text-amber-900 p-2 rounded-xl border border-amber-200">
+                            ملاحظات العميل: {ord.notes}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Ordered Items Table */}
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-bold text-brand-dark">
+                        المنتجات المطلوبة من متجرك:
+                      </h4>
+                      <div className="space-y-2">
+                        {ord.items.map((item, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-brand-dark/10 text-xs"
+                          >
+                            <div className="flex items-center gap-3">
+                              {item.image_url ? (
+                                <img
+                                  src={item.image_url}
+                                  alt={item.name}
+                                  className="w-12 h-12 object-cover rounded-xl border border-brand-dark/10"
+                                />
+                              ) : (
+                                <div className="w-12 h-12 bg-secondary rounded-xl grid place-items-center text-muted-foreground">
+                                  📦
+                                </div>
+                              )}
+                              <div>
+                                <p className="font-bold text-brand-dark">{item.name}</p>
+                                <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
+                                  {item.selectedColor && (
+                                    <span className="bg-secondary px-2 py-0.5 rounded font-medium">
+                                      اللون: {item.selectedColor}
+                                    </span>
+                                  )}
+                                  {item.selectedSize && (
+                                    <span className="bg-secondary px-2 py-0.5 rounded font-medium">
+                                      المقاس: {item.selectedSize}
+                                    </span>
+                                  )}
+                                  <span>الكمية: {item.quantity}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="text-left font-black text-brand-dark">
+                              {(item.price * item.quantity).toLocaleString()} ج.م
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Total Footer */}
+                    <div className="flex items-center justify-between pt-2 border-t border-brand-dark/10 text-xs font-extrabold">
+                      <span className="text-brand-dark">إجمالي مبيعاتك من هذا الطلب:</span>
+                      <span className="text-brand-primary text-sm">
+                        {ord.total.toLocaleString()} ج.م
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 1. ANALYTICS Tab */}
       {activeTab === "analytics" && (
         <div className="space-y-6">
-          {/* Quick Stats Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <div className="bg-brand-bg p-4 rounded-2xl border border-brand-dark/5 text-center">
-              <span className="text-[10px] text-muted-foreground block">
+              <span className="text-[10px] text-muted-foreground block font-bold">
                 إجمالي المبيعات المحققة
               </span>
-              <span className="text-lg font-bold text-brand-primary">
+              <span className="text-xl font-black text-brand-primary block py-1">
                 {sellerStats.loading ? "..." : formatEGP(sellerStats.monthlySales)}
               </span>
               <span className="text-[9px] text-emerald-600 font-bold block">
@@ -352,41 +609,235 @@ export function SellerDashboard({
             </div>
 
             <div className="bg-brand-bg p-4 rounded-2xl border border-brand-dark/5 text-center">
-              <span className="text-[10px] text-muted-foreground block">
-                طلبات قيد المعالجة والشحن
+              <span className="text-[10px] text-muted-foreground block font-bold">
+                طلبات قيد الشحن والتسليم
               </span>
-              <span className="text-lg font-bold text-brand-primary">
+              <span className="text-xl font-black text-brand-primary block py-1">
                 {sellerStats.loading ? "..." : `${sellerStats.pendingOrdersCount} طلب`}
               </span>
               <span className="text-[9px] text-amber-600 font-bold block">
-                جاهز للتسليم والتحضير
+                جاهز للتجهيز والتوصيل
               </span>
             </div>
 
-            <div className="bg-brand-bg p-4 rounded-2xl border border-brand-dark/5 text-center">
-              <span className="text-[10px] text-muted-foreground block">المنتجات المنشورة</span>
-              <span className="text-lg font-bold text-brand-primary">{products.length} منتجات</span>
+            <div className="bg-brand-bg p-4 rounded-2xl border border-brand-dark/5 text-center col-span-2 md:col-span-1">
+              <span className="text-[10px] text-muted-foreground block font-bold">
+                المنتجات المنشورة متجرك
+              </span>
+              <span className="text-xl font-black text-brand-primary block py-1">
+                {products.length} منتجات
+              </span>
               <span className="text-[9px] text-brand-primary font-bold block">
-                نشطة في كتالوج البحث
+                نشطة في الكتالوج
               </span>
-            </div>
-
-            <div className="bg-brand-bg p-4 rounded-2xl border border-brand-dark/5 text-center">
-              <span className="text-[10px] text-muted-foreground block">المخازن المربوطة</span>
-              <span className="text-lg font-bold text-brand-primary">
-                {seller?.warehouses.length || 0} مستودعات
-              </span>
-              <span className="text-[9px] text-sky-600 font-bold block">موزعة جغرافيًا</span>
             </div>
           </div>
         </div>
       )}
 
-      {/* 2. DYNAMIC VARIANTS Tab */}
+      {/* 2. SELLER TYPE & COMPANY VERIFICATION */}
+      {activeTab === "seller_type" && (
+        <div className="space-y-6">
+          <div className="bg-brand-bg border border-brand-dark/10 rounded-2xl p-5 space-y-4">
+            <h3 className="font-extrabold text-sm text-brand-dark flex items-center gap-2">
+              <FileText className="w-5 h-5 text-brand-primary" />
+              تفاصيل نوع حساب البائع وتوثيق الشركة / المصنع
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              يمكنك العمل كمسوق بالعمولة أو تاجر فردي أو توثيق حسابك كشركة/مصنع معتمد برقم السجل
+              التجاري والبطاقة الضريبية للحصول على شارة التوثيق وعمولات مميزة.
+            </p>
+
+            <form
+              onSubmit={handleSubmitCompanyDocs}
+              className="space-y-4 pt-2 border-t border-brand-dark/5"
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-brand-dark block">
+                    رقم السجل التجاري (Commercial Registration):
+                  </label>
+                  <input
+                    type="text"
+                    value={commRegister}
+                    onChange={(e) => setCommRegister(e.target.value)}
+                    placeholder="مثال: 123456"
+                    className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-4 py-3 outline-none focus:border-brand-primary"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-brand-dark block">
+                    رقم البطاقة الضريبية (Tax Card Number):
+                  </label>
+                  <input
+                    type="text"
+                    value={taxCard}
+                    onChange={(e) => setTaxCard(e.target.value)}
+                    placeholder="مثال: 987-654-321"
+                    className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-4 py-3 outline-none focus:border-brand-primary"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  type="submit"
+                  className="bg-brand-primary hover:bg-brand-dark text-white font-bold px-6 py-3 rounded-xl text-xs transition cursor-pointer flex items-center gap-2 shadow-sm"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  حفظ وإرسال أوراق التوثيق للسوبر أدمن
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 3. SELLER REQUESTS TO SUPERADMIN */}
+      {activeTab === "seller_requests" && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Create new Request */}
+            <form
+              onSubmit={handleCreateRequest}
+              className="bg-brand-bg border border-brand-dark/10 rounded-2xl p-5 space-y-4 h-fit"
+            >
+              <h3 className="font-extrabold text-sm text-brand-dark flex items-center gap-2">
+                <Send className="w-4 h-4 text-brand-primary" />
+                تقديم طلب جديد للسوبر أدمن
+              </h3>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-muted-foreground block">نوع الطلب:</label>
+                <select
+                  value={reqType}
+                  onChange={(e) => setReqType(e.target.value as "category" | "payment_method")}
+                  className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2.5 outline-none font-bold"
+                >
+                  <option value="category">طلب إضافة قسم / تصنيف فرعي جديد</option>
+                  <option value="payment_method">طلب تفعيل وسيلة دفع إضافية</option>
+                </select>
+              </div>
+
+              {reqType === "category" && (
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-muted-foreground block">
+                    القسم المستهدف:
+                  </label>
+                  <select
+                    value={reqSection}
+                    onChange={(e) => setReqSection(e.target.value as "general" | "women")}
+                    className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2.5 outline-none font-bold"
+                  >
+                    <option value="general">الأقسام العامة للمتجر</option>
+                    <option value="women">قسم النساء والخصوصية</option>
+                  </select>
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-muted-foreground block">
+                  عنوان الطلب:
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="مثلاً: إضافة قسم أدوات حدائق المنزل..."
+                  value={reqTitle}
+                  onChange={(e) => setReqTitle(e.target.value)}
+                  className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2.5 outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-muted-foreground block">
+                  تفاصيل وأسباب الطلب:
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  placeholder="اكتب شرحاً موجزاً عن التصنيف المطلوب أو طريقة الدفع المرغوبة..."
+                  value={reqDetails}
+                  onChange={(e) => setReqDetails(e.target.value)}
+                  className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl p-3 outline-none"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-brand-primary hover:bg-brand-dark text-white font-bold py-3 rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-2 shadow-sm"
+              >
+                <Send className="w-4 h-4" />
+                إرسال الطلب للسوبر أدمن
+              </button>
+            </form>
+
+            {/* List Submitted Requests */}
+            <div className="lg:col-span-2 space-y-3">
+              <h3 className="font-extrabold text-sm text-brand-dark">
+                سجل الطلبات السابقة وحالتها:
+              </h3>
+
+              {requestsList.length === 0 ? (
+                <div className="bg-brand-bg p-8 rounded-2xl border border-brand-dark/5 text-center text-xs text-muted-foreground">
+                  لم تقم بتقديم أي طلبات حتى الآن.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {requestsList.map((r) => (
+                    <div
+                      key={r.id}
+                      className="bg-brand-bg border border-brand-dark/10 rounded-2xl p-4 space-y-2"
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <span className="text-[10px] font-bold bg-brand-primary/10 text-brand-primary px-2.5 py-0.5 rounded-md inline-block mb-1">
+                            {r.requestType === "category" && "طلب إضافة قسم"}
+                            {r.requestType === "payment_method" && "طلب وسيلة دفع"}
+                            {r.requestType === "company_verification" && "طلب توثيق شركة"}
+                          </span>
+                          <h4 className="font-bold text-xs md:text-sm text-brand-dark">
+                            {r.title}
+                          </h4>
+                        </div>
+
+                        <span className="flex items-center gap-1 text-xs font-bold">
+                          {r.status === "pending" && (
+                            <span className="text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg flex items-center gap-1">
+                              <Clock className="w-3.5 h-3.5" /> قيد المراجعة
+                            </span>
+                          )}
+                          {r.status === "approved" && (
+                            <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg flex items-center gap-1">
+                              <CheckCircle className="w-3.5 h-3.5" /> تم القبول
+                            </span>
+                          )}
+                          {r.status === "rejected" && (
+                            <span className="text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-lg flex items-center gap-1">
+                              <XCircle className="w-3.5 h-3.5" /> تم الرفض
+                            </span>
+                          )}
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-muted-foreground">{r.details}</p>
+                      <span className="text-[10px] text-muted-foreground block pt-1">
+                        تاريخ الطلب: {r.createdAt}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. DYNAMIC VARIANTS Tab */}
       {activeTab === "variants" && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* List and manage variants */}
             <div className="lg:col-span-2 space-y-4">
               <div className="space-y-1">
                 <label className="text-xs font-bold text-muted-foreground block">
@@ -395,11 +846,11 @@ export function SellerDashboard({
                 <select
                   value={selectedProductId}
                   onChange={(e) => setSelectedProductId(e.target.value)}
-                  className="w-full text-xs bg-brand-bg border border-brand-dark/10 rounded-xl px-3 py-2.5 focus:outline-none"
+                  className="w-full text-xs bg-brand-bg border border-brand-dark/10 rounded-xl px-3 py-2.5 outline-none font-bold"
                 >
                   {products.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name}
+                      {p.name} ({formatEGP(p.price)})
                     </option>
                   ))}
                 </select>
@@ -407,128 +858,100 @@ export function SellerDashboard({
 
               {productMeta && (
                 <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-brand-dark">
-                      المتغيرات النشطة للمنتج المحدد:
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">
-                      {productMeta.variants.length} متغير متوفر
-                    </span>
-                  </div>
+                  <h4 className="font-bold text-xs text-brand-dark">
+                    المتغيرات المضافة للمنتج الحالي ({productMeta.variants.length}):
+                  </h4>
 
                   {productMeta.variants.length === 0 ? (
-                    <p className="text-center py-6 text-xs text-muted-foreground bg-brand-bg border rounded-2xl">
-                      لا توجد متغيرات فرعية لهذا المنتج. يمكنك إنشاؤها عبر النموذج الجانبي.
-                    </p>
+                    <div className="bg-brand-bg p-6 rounded-2xl border border-brand-dark/5 text-center text-xs text-muted-foreground">
+                      لا توجد متغيرات فرعية لهذا المنتج بعد. استخدم النموذج لإضافة ألوان أو مقاسات.
+                    </div>
                   ) : (
-                    <div className="space-y-2">
-                      {productMeta.variants.map((v) => {
-                        const wh = warehouses.find((w) => w.id === v.warehouseId);
-                        const attrText = Object.entries(v.attributes)
-                          .map(([k, val]) => `${k}: ${val}`)
-                          .join(" | ");
-
-                        return (
-                          <div
-                            key={v.id}
-                            className="bg-brand-bg border border-brand-dark/5 rounded-2xl p-4 flex justify-between items-center"
-                          >
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-mono text-xs font-bold text-brand-primary">
-                                  {v.sku}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {productMeta.variants.map((v) => (
+                        <div
+                          key={v.id}
+                          className="bg-brand-bg border border-brand-dark/10 rounded-2xl p-3 flex justify-between items-center gap-2"
+                        >
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-brand-primary block dir-ltr text-right">
+                              {v.sku}
+                            </span>
+                            <div className="flex flex-wrap gap-1">
+                              {Object.entries(v.attributes).map(([k, val]) => (
+                                <span
+                                  key={k}
+                                  className="text-[10px] bg-secondary border border-brand-dark/5 text-brand-dark font-bold px-2 py-0.5 rounded"
+                                >
+                                  {k}: {val}
                                 </span>
-                                <span className="text-xs bg-brand-accent/15 text-brand-dark font-bold px-2 py-0.5 rounded">
-                                  {attrText}
-                                </span>
-                              </div>
-                              <p className="text-[10px] text-muted-foreground">
-                                السعر الإضافي: +{formatEGP(v.price)} | كمية المخزون: {v.stock} قطعة
-                              </p>
-                              {wh && (
-                                <p className="text-[9px] font-bold text-emerald-800">
-                                  📍 مربوط بمخزن: {wh.name}
-                                </p>
-                              )}
+                              ))}
                             </div>
-
-                            <button
-                              onClick={() => deleteVariant(v.id)}
-                              className="text-destructive hover:bg-destructive/10 p-2 rounded-lg transition"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <div className="text-xs font-extrabold text-brand-dark">
+                              السعر: {formatEGP(v.price)} | المخزون: {v.stock} قطعة
+                            </div>
                           </div>
-                        );
-                      })}
+
+                          <button
+                            type="button"
+                            onClick={() => deleteVariant(v.id)}
+                            className="text-destructive hover:bg-destructive/10 p-2 rounded-lg transition"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
               )}
             </div>
 
-            {/* Create variant form */}
+            {/* Create Variant Form */}
             <form
               onSubmit={addVariant}
-              className="bg-brand-bg border border-brand-dark/5 rounded-2xl p-4 space-y-3 h-fit"
+              className="bg-brand-bg border border-brand-dark/10 rounded-2xl p-4 space-y-3 h-fit"
             >
               <h3 className="font-extrabold text-xs md:text-sm flex items-center gap-1.5">
-                <Plus className="w-4 h-4 text-brand-accent" /> توليد متغير فرعي (Variant)
+                <Plus className="w-4 h-4 text-brand-accent" /> إضافة خيار/لون/مقاس فرعي
               </h3>
 
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-muted-foreground block">
-                  رمز المتغير (SKU):
+                  اسم الخاصية (مثلاً: اللون أو المقاس):
                 </label>
                 <input
-                  value={newVarSku}
-                  onChange={(e) => setNewVarSku(e.target.value)}
-                  placeholder="اتركه فارغاً للتوليد التلقائي..."
-                  className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2.5 focus:outline-none"
+                  value={newVarAttrKey}
+                  onChange={(e) => setNewVarAttrKey(e.target.value)}
+                  placeholder="اللون / المقاس..."
+                  className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2 outline-none"
+                  required
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-muted-foreground block">
+                  قيمة الخاصية (مثلاً: أسود أو XL):
+                </label>
+                <input
+                  value={newVarAttrVal}
+                  onChange={(e) => setNewVarAttrVal(e.target.value)}
+                  placeholder="أسود / بيج / XL..."
+                  className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2 outline-none"
+                  required
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-muted-foreground block">
-                    خاصية الميزة:
-                  </label>
-                  <select
-                    value={newVarAttrKey}
-                    onChange={(e) => setNewVarAttrKey(e.target.value)}
-                    className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2 focus:outline-none"
-                  >
-                    <option value="اللون">اللون</option>
-                    <option value="المقاس">المقاس</option>
-                    <option value="نوع الخشب">نوع الخشب</option>
-                    <option value="نوع القماش">نوع القماش</option>
-                    <option value="بلد المنشأ">بلد المنشأ</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-muted-foreground block">
-                    قيمة الميزة:
-                  </label>
-                  <input
-                    required
-                    value={newVarAttrVal}
-                    onChange={(e) => setNewVarAttrVal(e.target.value)}
-                    placeholder="مثال: بني زان، كبير..."
-                    className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-muted-foreground block">
-                    سعر إضافي (ج.م):
+                    السعر (ج.م):
                   </label>
                   <input
                     type="number"
                     value={newVarPrice}
                     onChange={(e) => setNewVarPrice(Number(e.target.value))}
-                    className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2.5"
+                    className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2 outline-none"
                   />
                 </div>
                 <div className="space-y-1">
@@ -539,294 +962,18 @@ export function SellerDashboard({
                     type="number"
                     value={newVarStock}
                     onChange={(e) => setNewVarStock(Number(e.target.value))}
-                    className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2.5"
+                    className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2 outline-none"
                   />
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-muted-foreground block">
-                  مستودع التخزين المربوط:
-                </label>
-                <select
-                  value={newVarWarehouse}
-                  onChange={(e) => setNewVarWarehouse(e.target.value)}
-                  className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2.5 focus:outline-none"
-                >
-                  <option value="">— اختر مستودع —</option>
-                  {warehouses.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
               <button
                 type="submit"
-                disabled={!selectedProductId}
-                className="w-full bg-brand-accent text-brand-dark font-extrabold py-3.5 rounded-xl text-xs hover:bg-amber-500 disabled:opacity-50 transition"
+                className="w-full bg-brand-primary text-brand-bg font-extrabold py-2.5 rounded-xl text-xs hover:bg-brand-dark transition cursor-pointer shadow-sm"
               >
-                توليد المتغير وحفظه
+                توليد الخيار الفرعي
               </button>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* 3. WAREHOUSES Tab */}
-      {activeTab === "warehouses" && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-3">
-              <h3 className="font-bold text-sm text-brand-dark">المستودعات المخصصة لمتجرك:</h3>
-              <div className="space-y-2">
-                {warehouses.map((w) => (
-                  <div
-                    key={w.id}
-                    className="bg-brand-bg border border-brand-dark/5 rounded-2xl p-4 flex justify-between items-center"
-                  >
-                    <div>
-                      <h4 className="font-extrabold text-xs md:text-sm flex items-center gap-1.5">
-                        <WarehouseIcon className="w-4 h-4 text-brand-primary" />
-                        {w.name}
-                      </h4>
-                      <p className="text-[10px] text-muted-foreground">
-                        الموقع الجغرافي: {w.location} | السعة الاستيعابية: {w.capacity} طرد
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => deleteWarehouse(w.id)}
-                      className="text-destructive text-[10px] hover:underline"
-                    >
-                      إزالة المستودع
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Create warehouse form */}
-            <form
-              onSubmit={handleCreateWarehouse}
-              className="bg-brand-bg border border-brand-dark/5 rounded-2xl p-4 space-y-3 h-fit"
-            >
-              <h3 className="font-extrabold text-xs md:text-sm flex items-center gap-1.5">
-                <Plus className="w-4 h-4 text-brand-accent" /> ربط مستودع تخزين جديد
-              </h3>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-muted-foreground block">
-                  اسم المستودع:
-                </label>
-                <input
-                  required
-                  value={newWhName}
-                  onChange={(e) => setNewWhName(e.target.value)}
-                  placeholder="مثال: مخزن الدلتا الرئيسي..."
-                  className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2.5 focus:outline-none"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-muted-foreground block">
-                  الموقع / العنوان بالتفصيل:
-                </label>
-                <input
-                  required
-                  value={newWhLoc}
-                  onChange={(e) => setNewWhLoc(e.target.value)}
-                  placeholder="المحافظة والمنطقة السكنية..."
-                  className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2.5 focus:outline-none"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-muted-foreground block">
-                  السعة الإجمالية للطرود:
-                </label>
-                <input
-                  type="number"
-                  required
-                  value={newWhCap}
-                  onChange={(e) => setNewWhCap(Number(e.target.value))}
-                  className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2.5 focus:outline-none"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="w-full bg-brand-accent text-brand-dark font-extrabold py-3.5 rounded-xl text-xs hover:bg-amber-500 transition"
-              >
-                إنشاء وتخصيص المستودع
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* 4. SUBSCRIPTION Tab */}
-      {activeTab === "subscription" && (
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="font-bold text-sm text-brand-dark">
-              باقات وخطط الترقية المتاحة للتجار والمتاجر:
-            </h3>
-            <span className="text-xs text-muted-foreground">التفعيل فوري بمجرد الاختيار</span>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {plans.map((p) => {
-              const isCurrent = seller?.planId === p.id;
-              return (
-                <div
-                  key={p.id}
-                  className={`bg-brand-bg border rounded-2xl p-5 flex flex-col justify-between gap-4 relative transition ${
-                    isCurrent
-                      ? "border-brand-accent ring-2 ring-brand-accent/20"
-                      : "border-brand-dark/5 hover:border-brand-accent"
-                  }`}
-                >
-                  {isCurrent && (
-                    <span className="absolute top-3 left-3 bg-brand-accent text-brand-dark text-[8px] font-extrabold px-2.5 py-0.5 rounded-full">
-                      الباقة النشطة حالياً
-                    </span>
-                  )}
-
-                  <div className="space-y-1">
-                    <h4 className="font-extrabold text-xs md:text-sm">{p.name}</h4>
-                    <p className="text-[10px] text-muted-foreground line-clamp-2">
-                      {p.description}
-                    </p>
-                    <div className="text-lg font-extrabold text-brand-accent">
-                      {p.price === 0 ? "مجاني" : formatEGP(p.price)}
-                    </div>
-                    <div className="text-[10px] font-bold text-emerald-800">
-                      ⚡ باقة تجارية مرخصة بالكامل للبيع وإضافة الأقسام
-                    </div>
-                  </div>
-
-                  <ul className="space-y-1 text-[10px] font-semibold border-t border-brand-dark/5 pt-2.5">
-                    {p.features.map((feat, i) => (
-                      <li key={i} className="text-brand-dark">
-                        ✓ {feat}
-                      </li>
-                    ))}
-                  </ul>
-
-                  <button
-                    disabled={isCurrent}
-                    onClick={() => purchasePlanUpgrade(p.id)}
-                    className={`w-full py-2.5 rounded-xl text-xs font-extrabold transition cursor-pointer ${
-                      isCurrent
-                        ? "bg-secondary text-muted-foreground cursor-not-allowed"
-                        : "bg-brand-dark text-brand-bg hover:bg-brand-primary"
-                    }`}
-                  >
-                    {isCurrent ? "باقتك النشطة حالياً" : "ترقية والاشتراك فوراً"}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* 5. STORE PAYMENTS & COMMISSION Tab */}
-      {activeTab === "store_payments" && (
-        <div className="space-y-6 animate-fadeIn">
-          <div className="bg-brand-bg p-6 rounded-2xl border border-brand-dark/5 space-y-4">
-            <div className="flex items-center justify-between border-b border-brand-dark/5 pb-3">
-              <div className="space-y-1">
-                <h3 className="font-bold text-sm text-brand-dark flex items-center gap-2">
-                  <CreditCard className="w-4 h-4 text-brand-primary" />
-                  خيارات طرق الدفع المتاحة لعملاء متجرك
-                </h3>
-                <p className="text-xs text-muted-foreground">
-                  حدد خيارات الدفع التي تقبلها لمنتجاتك، وسيتم عرض هذه الخيارات فقط للعملاء أثناء
-                  إتمام الطلب.
-                </p>
-              </div>
-              <span className="text-[10px] bg-emerald-500/10 text-emerald-700 font-extrabold px-3 py-1 rounded-full border border-emerald-500/20">
-                مفعلة وتتطابق مع صفحة الدفع
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-              {[
-                { id: "cod", label: "الدفع عند الاستلام (COD)", desc: "نقداً لمندوب الشحن" },
-                {
-                  id: "card",
-                  label: "بطاقة بنكية (Visa/Mastercard)",
-                  desc: "الدفع الإلكتروني المباشر",
-                },
-                { id: "wallet", label: "محفظة كاش (Vodafone Cash)", desc: "تحويل كاش مباشر" },
-                { id: "instapay", label: "إنستا باي (InstaPay)", desc: "تحويل لحظي بالمعرف" },
-              ].map((method) => {
-                const billing = MultiVendorStorage.getBillingSettings();
-                const isSelected = billing.paymentMethods?.includes(method.id) ?? true;
-                return (
-                  <button
-                    key={method.id}
-                    type="button"
-                    onClick={() => {
-                      const current = billing.paymentMethods || [
-                        "cod",
-                        "card",
-                        "wallet",
-                        "instapay",
-                      ];
-                      const updated = isSelected
-                        ? current.filter((m) => m !== method.id)
-                        : [...current, method.id];
-
-                      if (updated.length === 0) {
-                        toast.error("يجب تفعيل طريقة دفع واحدة على الأقل لمتجرك!");
-                        return;
-                      }
-
-                      MultiVendorStorage.saveBillingSettings({
-                        ...billing,
-                        paymentMethods: updated,
-                      });
-                      toast.success(`تم تحديث قبول طريقة [${method.label}] لمتجرك بنجاح!`);
-                    }}
-                    className={`p-4 rounded-2xl border text-right transition cursor-pointer space-y-2 ${
-                      isSelected
-                        ? "border-brand-primary bg-brand-primary/10 text-brand-dark ring-1 ring-brand-primary/30"
-                        : "border-brand-dark/10 bg-card text-muted-foreground opacity-60 hover:opacity-100"
-                    }`}
-                  >
-                    <div className="flex justify-between items-center">
-                      <span className="font-black text-xs">{method.label}</span>
-                      <div
-                        className={`w-4 h-4 rounded-md border flex items-center justify-center ${
-                          isSelected
-                            ? "bg-brand-primary border-brand-primary text-white"
-                            : "border-brand-dark/20"
-                        }`}
-                      >
-                        {isSelected && <Check className="w-3 h-3" />}
-                      </div>
-                    </div>
-                    <span className="text-[10px] text-muted-foreground block">{method.desc}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Super Admin Commission Read-Only Info Box */}
-          <div className="bg-amber-500/10 border border-amber-500/30 p-5 rounded-2xl space-y-2">
-            <div className="flex items-center gap-2 text-amber-800 font-extrabold text-xs">
-              <Building className="w-4 h-4 text-amber-600" />
-              <span>سياسة ونسبة عمولة المنصة المعتمدة (محددة بواسطة السوبر أدمن حصرياً):</span>
-            </div>
-            <p className="text-xs text-amber-900 leading-relaxed">
-              وفقاً لقوانين المنصة، النسبة الحالية لعمولة السوبر أدمن هي{" "}
-              <strong className="text-brand-primary font-black">5%</strong> من إجمالي مبيعات المتجر.
-              لا يمكن للبائع تعديل نسبة العمولة، حيث يتم حساب المستحقات والمديونيات تلقائياً
-              وإضافتها للمحفظة.
-            </p>
           </div>
         </div>
       )}

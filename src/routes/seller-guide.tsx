@@ -31,8 +31,7 @@ export const Route = createFileRoute("/seller-guide")({
 export function SellerGuidePage() {
   const navigate = useNavigate();
   const { isAdmin } = useIsAdmin();
-  const simRole = MarketplaceStore.getSimulationRole();
-  const canEdit = isAdmin && simRole !== "visitor" && simRole !== "customer";
+  const canEdit = isAdmin;
   const [isSeller, setIsSeller] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -93,11 +92,7 @@ export function SellerGuidePage() {
     handleSaveTutorials(updated);
   };
 
-  const isSellerOrAdmin =
-    isAdmin ||
-    simRole === "seller" ||
-    simRole === "super_admin" ||
-    isSeller;
+  const isSellerOrAdmin = isAdmin || isSeller;
 
   if (loading) {
     return (
@@ -117,9 +112,12 @@ export function SellerGuidePage() {
             <Store className="w-10 h-10" />
           </div>
           <div className="space-y-2">
-            <h2 className="text-2xl font-black text-brand-dark">المركز التعليمي مخصص للبائعين فقط</h2>
+            <h2 className="text-2xl font-black text-brand-dark">
+              المركز التعليمي مخصص للبائعين فقط
+            </h2>
             <p className="text-sm text-brand-dark/70 leading-relaxed max-w-md mx-auto">
-              هذا المركز مخصص للتجار والبائعين المعتمدين للاطلاع على الدليل الشامل وإدارة المتجر والتوجيهات. يرجى تسجيل الدخول بكود أو حساب البائع للوصول.
+              هذا المركز مخصص للتجار والبائعين المعتمدين للاطلاع على الدليل الشامل وإدارة المتجر
+              والتوجيهات. يرجى تسجيل الدخول بكود أو حساب البائع للوصول.
             </p>
           </div>
           <div className="pt-2 flex items-center justify-center gap-3">

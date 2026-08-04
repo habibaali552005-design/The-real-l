@@ -73,6 +73,49 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   );
 }
 
+const BLOCKING_THEME_SCRIPT = `
+(function() {
+  try {
+    var raw = localStorage.getItem('beitak_mv_site_theme_settings');
+    if (raw) {
+      var s = JSON.parse(raw);
+      if (s.themeMode === 'dark') {
+        document.documentElement.classList.add('dark');
+      }
+      var bd = s.brandDark || '#1C1613';
+      var pri = s.homepagePrimary || s.brandPrimary || '#5C4033';
+      var acc = s.homepageAccent || s.brandAccent || '#D2B48C';
+      var bg = s.homepageBg || s.brandBg || '#F8F5EE';
+      var card = s.homepageCard || '#FFFFFF';
+      var txt = s.homepageText || bd;
+
+      var el = document.createElement('style');
+      el.id = 'beitak-dynamic-theme';
+      el.innerHTML = ':root{' +
+        '--brand-dark:' + bd + ';' +
+        '--brand-primary:' + pri + ';' +
+        '--brand-accent:' + acc + ';' +
+        '--brand-bg:' + bg + ';' +
+        '--brand-card:' + card + ';' +
+        '--background:' + bg + ';' +
+        '--foreground:' + txt + ';' +
+        '--card:' + card + ';' +
+        '--card-foreground:' + txt + ';' +
+        '--popover:' + card + ';' +
+        '--popover-foreground:' + txt + ';' +
+        '--primary:' + pri + ';' +
+        '--primary-foreground:#FFFFFF;' +
+        '--accent:' + acc + ';' +
+        '--accent-foreground:' + bd + ';' +
+        '--border:' + acc + '33;' +
+        '--ring:' + acc + ';' +
+      '}body,#root{background-color:var(--background);color:var(--foreground);}';
+      document.head.appendChild(el);
+    }
+  } catch (e) {}
+})();
+`;
+
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
     meta: [
@@ -95,16 +138,6 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:title", content: "بيتك" },
       {
-        name: "description",
-        content:
-          "بيتك: منصتك المصرية لشراء الأثاث والأجهزة الكهربائية والسيارات والعقارات بأسعار مناسبة وشحن لكل المحافظات.",
-      },
-      {
-        property: "og:description",
-        content:
-          "بيتك: منصتك المصرية لشراء الأثاث والأجهزة الكهربائية والسيارات والعقارات بأسعار مناسبة وشحن لكل المحافظات.",
-      },
-      {
         name: "twitter:description",
         content:
           "بيتك: منصتك المصرية لشراء الأثاث والأجهزة الكهربائية والسيارات والعقارات بأسعار مناسبة وشحن لكل المحافظات.",
@@ -121,14 +154,20 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
     ],
     links: [{ rel: "stylesheet", href: appCss }],
+    scripts: [
+      {
+        children: BLOCKING_THEME_SCRIPT,
+      },
+    ],
   }),
-  shellComponent: RootShell,
   component: RootComponent,
   notFoundComponent: NotFoundComponent,
   errorComponent: ErrorComponent,
 });
 
-function RootShell({ children }: { children: ReactNode }) {
+import { GlobalErrorBoundary } from "@/components/GlobalErrorBoundary";
+
+function RootDocument({ children }: { children: ReactNode }) {
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning>
       <head suppressHydrationWarning>
@@ -142,20 +181,20 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
-import { GlobalErrorBoundary } from "@/components/GlobalErrorBoundary";
-
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   return (
-    <GlobalErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <CartProvider>
-          <ThemeInjector />
-          <Outlet />
-          <Toaster position="top-center" richColors />
-        </CartProvider>
-      </QueryClientProvider>
-    </GlobalErrorBoundary>
+    <RootDocument>
+      <GlobalErrorBoundary>
+        <QueryClientProvider client={queryClient}>
+          <CartProvider>
+            <ThemeInjector />
+            <Outlet />
+            <Toaster position="top-center" richColors />
+          </CartProvider>
+        </QueryClientProvider>
+      </GlobalErrorBoundary>
+    </RootDocument>
   );
 }

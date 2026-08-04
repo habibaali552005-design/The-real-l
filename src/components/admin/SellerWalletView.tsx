@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   CreditCard,
   TrendingUp,
@@ -84,6 +84,40 @@ export function SellerWalletView({ sellerId, isSuperAdmin }: SellerWalletViewPro
   const [payNotes, setPayNotes] = useState("");
   const [isPaying, setIsPaying] = useState(false);
 
+  const fetchRealOrders = useCallback(async () => {
+    try {
+      setLoadingOrders(true);
+      const { data, error } = await supabase
+        .from("orders")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (!error && data) {
+        setOrders(data);
+      }
+    } catch (e) {
+      console.error("Error loading orders for wallet:", e);
+    } finally {
+      setLoadingOrders(false);
+    }
+  }, []);
+
+  const loadWalletData = useCallback(() => {
+    const activeWallet = MultiVendorStorage.getWallet(sellerId);
+    setWallet(activeWallet);
+
+    const allWithdrawals = MultiVendorStorage.getWithdrawalRequests();
+    const filteredWithdrawals = isSuperAdmin
+      ? allWithdrawals
+      : allWithdrawals.filter((w) => w.sellerId === sellerId);
+    setWithdrawals(filteredWithdrawals);
+
+    const allPayments = MultiVendorStorage.getCommissionPayments();
+    setPayments(allPayments.filter((p) => p.sellerId === sellerId));
+
+    const allInvoices = MultiVendorStorage.getBillingInvoices(sellerId);
+    setInvoices(allInvoices);
+  }, [isSuperAdmin, sellerId]);
+
   useEffect(() => {
     loadWalletData();
     fetchRealOrders();
@@ -102,41 +136,7 @@ export function SellerWalletView({ sellerId, isSuperAdmin }: SellerWalletViewPro
       window.removeEventListener("beitak-billing-settings-updated", handleBillingUpdate);
       window.removeEventListener("beitak-billing-payments-updated", handleBillingUpdate);
     };
-  }, [sellerId]);
-
-  const fetchRealOrders = async () => {
-    try {
-      setLoadingOrders(true);
-      const { data, error } = await supabase
-        .from("orders")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (!error && data) {
-        setOrders(data);
-      }
-    } catch (e) {
-      console.error("Error loading orders for wallet:", e);
-    } finally {
-      setLoadingOrders(false);
-    }
-  };
-
-  const loadWalletData = () => {
-    const activeWallet = MultiVendorStorage.getWallet(sellerId);
-    setWallet(activeWallet);
-
-    const allWithdrawals = MultiVendorStorage.getWithdrawalRequests();
-    const filteredWithdrawals = isSuperAdmin
-      ? allWithdrawals
-      : allWithdrawals.filter((w) => w.sellerId === sellerId);
-    setWithdrawals(filteredWithdrawals);
-
-    const allPayments = MultiVendorStorage.getCommissionPayments();
-    setPayments(allPayments.filter((p) => p.sellerId === sellerId));
-
-    const allInvoices = MultiVendorStorage.getBillingInvoices(sellerId);
-    setInvoices(allInvoices);
-  };
+  }, [sellerId, loadWalletData, fetchRealOrders]);
 
   // Dynamic calculations based on real orders
   const completedOrders = orders.filter((o) => o.status === "delivered");
@@ -167,9 +167,23 @@ export function SellerWalletView({ sellerId, isSuperAdmin }: SellerWalletViewPro
         const itemTotal = itemPrice * itemQty;
         sellerTotalSales += itemTotal;
 
-        const productMeta = MarketplaceStore.getProductMetadata(item.id);
-        const rate = productMeta.commissionRate ?? billingSettings.commissionRateDefault;
-        sellerOutstandingCommissions += itemTotal * (rate / 100);
+        const sellerObj = MarketplaceStore.getSellers().find((s) => s.id === sellerId);
+        const sellerType = sellerObj?.sellerType || "merchant";
+        const cut = sellerObj?.commissionCut ?? 10;
+
+        let commissionForThisItem = 0;
+        if (sellerType === "affiliate") {
+          // For affiliate sellers: Platform cut is calculated ONLY from the affiliate's earned margin (e.g. 10%)
+          const affiliateMarginAmount = itemTotal * 0.1;
+          commissionForThisItem = affiliateMarginAmount * (cut / 100);
+        } else {
+          // For merchants and factories: Platform cut is calculated from total product sales price
+          const productMeta = MarketplaceStore.getProductMetadata(item.id);
+          const rate = productMeta.commissionRate ?? cut ?? billingSettings.commissionRateDefault;
+          commissionForThisItem = itemTotal * (rate / 100);
+        }
+
+        sellerOutstandingCommissions += commissionForThisItem;
       }
     });
 

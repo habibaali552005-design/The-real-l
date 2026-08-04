@@ -96,7 +96,7 @@ function StatsDashboardSection({
 
         if (ordersRes.data) setOrders(ordersRes.data);
         if (msgsRes.data) setMessages(msgsRes.data);
-        if (catsRes.data) setCategories(catsRes.data);
+        if (catsRes.data) setCategories(MarketplaceStore.filterDeletedCategories(catsRes.data));
       } catch (err) {
         console.error("Failed to load admin stats:", err);
       } finally {
@@ -107,10 +107,13 @@ function StatsDashboardSection({
   }, []);
 
   // Helper for relative time
-  const getRelativeTime = (dateStr: string) => {
+  const getRelativeTime = (dateStr?: string) => {
     if (!dateStr) return "الآن";
     try {
-      const diff = Date.now() - new Date(dateStr).getTime();
+      const parsed = new Date(dateStr);
+      if (isNaN(parsed.getTime())) return "الآن";
+      const diff = Date.now() - parsed.getTime();
+      if (isNaN(diff)) return "الآن";
       const mins = Math.floor(diff / 60000);
       if (mins < 1) return "الآن";
       if (mins < 60) return `قبل ${mins} دقيقة`;
@@ -140,7 +143,8 @@ function StatsDashboardSection({
 
     // Add orders to logs
     orders.forEach((o) => {
-      const date = o.created_at ? new Date(o.created_at) : new Date();
+      const parsed = o.created_at ? new Date(o.created_at) : new Date();
+      const date = !isNaN(parsed.getTime()) ? parsed : new Date();
       logs.push({
         id: `order-${o.id}`,
         time: getRelativeTime(o.created_at),
@@ -152,7 +156,8 @@ function StatsDashboardSection({
 
     // Add messages to logs
     messages.forEach((m) => {
-      const date = m.created_at ? new Date(m.created_at) : new Date();
+      const parsed = m.created_at ? new Date(m.created_at) : new Date();
+      const date = !isNaN(parsed.getTime()) ? parsed : new Date();
       logs.push({
         id: `msg-${m.id}`,
         time: getRelativeTime(m.created_at),
@@ -165,13 +170,19 @@ function StatsDashboardSection({
     // Add sellers from MarketplaceStore to logs
     const sellers = MarketplaceStore.getSellers();
     sellers.forEach((s) => {
-      const date = s.planExpiresAt
-        ? new Date(new Date(s.planExpiresAt).getTime() - 30 * 86400000)
-        : new Date();
+      let date = new Date();
+      if (s.planExpiresAt) {
+        const parsedPlan = new Date(s.planExpiresAt);
+        if (!isNaN(parsedPlan.getTime())) {
+          date = new Date(parsedPlan.getTime() - 30 * 86400000);
+        }
+      }
+      const safeIso = !isNaN(date.getTime()) ? date.toISOString() : new Date().toISOString();
+      const safeTimestamp = !isNaN(date.getTime()) ? date.getTime() : Date.now();
       logs.push({
         id: `seller-${s.id}`,
-        time: getRelativeTime(date.toISOString()),
-        timestamp: date.getTime(),
+        time: getRelativeTime(safeIso),
+        timestamp: safeTimestamp,
         city: "منصة التجار",
         action: `تم تفعيل حساب المتجر المعتمد: ${s.storeName}`,
       });
@@ -618,7 +629,15 @@ function StatsDashboardSection({
 
 export function SuperAdminDashboard() {
   const [activeTab, setActiveTab] = useState<
-    "stats" | "rbac" | "sellers" | "visitors" | "commissions" | "women_lounge" | "plans" | "coupons"
+    | "stats"
+    | "seller_requests"
+    | "payment_settings"
+    | "sellers"
+    | "women_lounge"
+    | "rbac"
+    | "visitors"
+    | "commissions"
+    | "coupons"
   >("stats");
 
   // State synchronized with local storage store
@@ -626,21 +645,27 @@ export function SuperAdminDashboard() {
   const [sellers, setSellers] = useState<Seller[]>([]);
   const [roles, setRoles] = useState<DynamicRole[]>([]);
   const [commissions, setCommissions] = useState<CommissionRule[]>([]);
-  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
 
-  // Subscription plans & coupons state
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [newPlanFeature, setNewPlanFeature] = useState("");
   const [newPlan, setNewPlan] = useState<Partial<SubscriptionPlan>>({
     name: "",
-    price: 0,
+    price: 100,
     type: "monthly",
     description: "",
     aiCredits: 100,
     features: [],
     isEnabled: true,
   });
+
+  // Billing settings & seller requests state
+  const [billingSettings, setBillingSettings] = useState(() =>
+    MultiVendorStorage.getBillingSettings(),
+  );
+  const [sellerRequests, setSellerRequests] = useState(() => MarketplaceStore.getSellerRequests());
+
   const [newCoupon, setNewCoupon] = useState<Partial<Coupon>>({
     code: "",
     discount: 10,
@@ -671,18 +696,27 @@ export function SuperAdminDashboard() {
     setSellers(MarketplaceStore.getSellers());
     setRoles(MarketplaceStore.getRoles());
     setCommissions(MarketplaceStore.getCommissions());
-    setPlans(MarketplaceStore.getPlans());
     setCoupons(MarketplaceStore.getCoupons());
+    setPlans(MarketplaceStore.getPlans());
 
     const refreshComms = () => {
       setCommissions(MarketplaceStore.getCommissions());
-      setPlans(MarketplaceStore.getPlans());
       setCoupons(MarketplaceStore.getCoupons());
+      setBillingSettings(MultiVendorStorage.getBillingSettings());
+      setSellerRequests(MarketplaceStore.getSellerRequests());
+      setSellers(MarketplaceStore.getSellers());
+      setPlans(MarketplaceStore.getPlans());
     };
+
     window.addEventListener("beitak-commissions-updated", refreshComms);
+    window.addEventListener("beitak-billing-updated", refreshComms);
+    window.addEventListener("beitak-seller-requests-updated", refreshComms);
     window.addEventListener("storage", refreshComms);
+
     return () => {
       window.removeEventListener("beitak-commissions-updated", refreshComms);
+      window.removeEventListener("beitak-billing-updated", refreshComms);
+      window.removeEventListener("beitak-seller-requests-updated", refreshComms);
       window.removeEventListener("storage", refreshComms);
     };
   }, []);
@@ -718,10 +752,7 @@ export function SuperAdminDashboard() {
     { key: "manage_settings", label: "تعديل إعدادات المتجر العامة" },
     { key: "manage_sellers", label: "قبول/تعليق حسابات التجار" },
     { key: "manage_plans", label: "إضافة/تعديل خطط الاشتراكات والأسعار" },
-    { key: "manage_ai", label: "إدارة أدوات واستوديو الذكاء الاصطناعي" },
     { key: "sell_products", label: "إدراج وبيع المنتجات وإدارة المخازن" },
-    { key: "use_ai_studio", label: "استخدام استوديو الصور بالذكاء الاصطناعي" },
-    { key: "use_batch_editor", label: "استخدام المعالج الدفعي للمئات من الصور" },
     { key: "manage_warehouses", label: "إضافة وإدارة مستودعات السلع" },
     { key: "view_reports", label: "عرض الإحصائيات والأرباح المتقدمة" },
   ];
@@ -960,12 +991,14 @@ export function SuperAdminDashboard() {
       <div className="flex gap-2 border-b border-brand-dark/5 pb-3 overflow-x-auto no-scrollbar">
         {[
           { key: "stats", label: "التحليلات والإحصائيات", icon: BarChart2 },
+          { key: "seller_requests", label: "طلبات البائعين والتراخيص", icon: CreditCard },
+          { key: "payment_settings", label: "خيارات الدفع والعمولات", icon: Percent },
+          { key: "sellers", label: "إدارة التجار والمسوقين", icon: Building },
           { key: "women_lounge", label: "إدارة قسم النساء", icon: Lock },
           { key: "rbac", label: "الأدوار والصلاحيات (RBAC)", icon: ShieldAlert },
-          { key: "sellers", label: "إدارة وتكوين التجار", icon: Building },
-          { key: "plans", label: "خطط الاشتراكات والأسعار", icon: CreditCard },
           { key: "visitors", label: "إدارة الزوار والترافيك", icon: Users },
-          { key: "commissions", label: "قواعد عمولات الأقسام (1% - 20%)", icon: Percent },
+          { key: "commissions", label: "عمولات الأقسام (1% - 20%)", icon: Percent },
+          { key: "coupons", label: "كوبونات الخصم", icon: Plus },
         ].map((t) => (
           <button
             key={t.key}
@@ -973,16 +1006,17 @@ export function SuperAdminDashboard() {
               setActiveTab(
                 t.key as
                   | "stats"
+                  | "seller_requests"
+                  | "payment_settings"
+                  | "sellers"
                   | "women_lounge"
                   | "rbac"
-                  | "sellers"
                   | "visitors"
                   | "commissions"
-                  | "plans"
                   | "coupons",
               )
             }
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
               activeTab === t.key
                 ? "bg-brand-primary text-brand-bg shadow-sm"
                 : "bg-brand-bg text-brand-dark border border-brand-dark/5 hover:border-brand-accent"
@@ -1002,6 +1036,309 @@ export function SuperAdminDashboard() {
           plansCount={plans.length}
           commissionsCount={commissions.length}
         />
+      )}
+
+      {/* 1. SELLER REQUESTS & VERIFICATIONS SECTION */}
+      {activeTab === "seller_requests" && (
+        <div className="space-y-6">
+          <div className="bg-gradient-to-r from-brand-dark to-brand-primary text-white p-6 rounded-3xl space-y-2">
+            <h3 className="font-extrabold text-base flex items-center gap-2 text-brand-accent">
+              <CreditCard className="w-5 h-5" />
+              طلبات البائعين المرفوعة للسوبر أدمن
+            </h3>
+            <p className="text-xs text-brand-bg/80 leading-relaxed">
+              إدارة طلبات البائعين لإضافة أقسام وتصنيفات جديدة، تفعيل وسائل دفع إضافية، وتوثيق أوراق
+              الشركات والمصانع المعتمدة.
+            </p>
+          </div>
+
+          {sellerRequests.length === 0 ? (
+            <div className="bg-brand-bg p-8 rounded-2xl border border-brand-dark/5 text-center text-xs text-muted-foreground">
+              لا توجد طلبات معلقة من البائعين حالياً.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {sellerRequests.map((req) => (
+                <div
+                  key={req.id}
+                  className="bg-brand-bg border border-brand-dark/10 rounded-2xl p-5 space-y-3"
+                >
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-brand-dark/5 pb-3">
+                    <div>
+                      <span className="text-[10px] font-bold bg-brand-primary/10 text-brand-primary px-2.5 py-0.5 rounded-md inline-block mb-1">
+                        {req.requestType === "category" && "طلب إضافة قسم جديدة"}
+                        {req.requestType === "payment_method" && "طلب تفعيل وسيلة دفع"}
+                        {req.requestType === "company_verification" && "طلب توثيق شركة / مصنع"}
+                      </span>
+                      <h4 className="font-black text-sm text-brand-dark">{req.title}</h4>
+                      <p className="text-xs text-muted-foreground font-bold">
+                        اسم البائع: {req.sellerName} | تاريخ الطلب: {req.createdAt}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {req.status === "pending" ? (
+                        <>
+                          <button
+                            onClick={() => {
+                              MarketplaceStore.updateSellerRequestStatus(req.id, "approved");
+                              setSellerRequests(MarketplaceStore.getSellerRequests());
+                              setSellers(MarketplaceStore.getSellers());
+                              toast.success("تمت الموافقة على طلب البائع بنجاح!");
+                            }}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl text-xs transition cursor-pointer flex items-center gap-1.5"
+                          >
+                            <Check className="w-4 h-4" /> موافقة واعتمد
+                          </button>
+                          <button
+                            onClick={() => {
+                              MarketplaceStore.updateSellerRequestStatus(req.id, "rejected");
+                              setSellerRequests(MarketplaceStore.getSellerRequests());
+                              toast.info("تم رفض طلب البائع");
+                            }}
+                            className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-4 py-2 rounded-xl text-xs transition cursor-pointer flex items-center gap-1.5"
+                          >
+                            <X className="w-4 h-4" /> رفض الطلب
+                          </button>
+                        </>
+                      ) : (
+                        <span
+                          className={`text-xs font-bold px-3 py-1 rounded-xl ${
+                            req.status === "approved"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : "bg-rose-100 text-rose-800"
+                          }`}
+                        >
+                          {req.status === "approved" ? "تمت الموافقة" : "مرفوض"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-brand-dark leading-relaxed font-medium bg-card p-3 rounded-xl border border-brand-dark/5">
+                    {req.details}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 2. PAYMENT SETTINGS & COMMISSIONS SECTION */}
+      {activeTab === "payment_settings" && (
+        <div className="space-y-6">
+          <div className="bg-brand-bg border border-brand-dark/10 rounded-2xl p-6 space-y-6">
+            <div className="border-b border-brand-dark/10 pb-4">
+              <h3 className="font-extrabold text-base text-brand-dark flex items-center gap-2">
+                <CreditCard className="w-5 h-5 text-brand-primary" />
+                خيارات ووسائل الدفع المتاحة للجمهور عبر المنصة
+              </h3>
+              <p className="text-xs text-muted-foreground pt-1">
+                الافتراضي حالياً هو الدفع عند الاستلام (COD). يمكنك تفعيل وسائل دفع إضافية للسماح
+                للمتسوقين باستخدامها في سلة الشراء.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* COD Method */}
+              <div className="bg-card p-4 rounded-xl border border-brand-dark/10 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-xs text-brand-dark block">
+                    الدفع عند الاستلام (Cash on Delivery)
+                  </span>
+                  <span className="text-[10px] text-muted-foreground block">
+                    وسيلة الدفع الأساسية المفعّلة افتراضياً
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={billingSettings.activePaymentMethods?.includes("cod") ?? true}
+                  onChange={(e) => {
+                    const current = billingSettings.activePaymentMethods || ["cod"];
+                    const next = e.target.checked
+                      ? Array.from(new Set([...current, "cod"]))
+                      : current.filter((m) => m !== "cod");
+                    const updated = { ...billingSettings, activePaymentMethods: next };
+                    MultiVendorStorage.saveBillingSettings(updated);
+                    setBillingSettings(updated);
+                    window.dispatchEvent(new Event("beitak-billing-updated"));
+                    toast.success("تم تحديث خيارات الدفع");
+                  }}
+                  className="w-5 h-5 accent-brand-primary cursor-pointer"
+                />
+              </div>
+
+              {/* Credit Card Method */}
+              <div className="bg-card p-4 rounded-xl border border-brand-dark/10 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-xs text-brand-dark block">
+                    بطاقات البنوك والائتمان (Visa / Mastercard)
+                  </span>
+                  <span className="text-[10px] text-muted-foreground block">
+                    تفعيل الدفع الإلكتروني المباشر
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={billingSettings.activePaymentMethods?.includes("card") ?? false}
+                  onChange={(e) => {
+                    const current = billingSettings.activePaymentMethods || ["cod"];
+                    const next = e.target.checked
+                      ? Array.from(new Set([...current, "card"]))
+                      : current.filter((m) => m !== "card");
+                    const updated = { ...billingSettings, activePaymentMethods: next };
+                    MultiVendorStorage.saveBillingSettings(updated);
+                    setBillingSettings(updated);
+                    window.dispatchEvent(new Event("beitak-billing-updated"));
+                    toast.success("تم تحديث خيارات الدفع");
+                  }}
+                  className="w-5 h-5 accent-brand-primary cursor-pointer"
+                />
+              </div>
+
+              {/* Electronic Wallet Method */}
+              <div className="bg-card p-4 rounded-xl border border-brand-dark/10 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-xs text-brand-dark block">
+                    المحافظ الإلكترونية (Vodafone Cash, Etisalat, Orange, WE)
+                  </span>
+                  <span className="text-[10px] text-muted-foreground block">
+                    الدفع عبر المحافظ الإلكترونية المحلية
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={billingSettings.activePaymentMethods?.includes("wallet") ?? false}
+                  onChange={(e) => {
+                    const current = billingSettings.activePaymentMethods || ["cod"];
+                    const next = e.target.checked
+                      ? Array.from(new Set([...current, "wallet"]))
+                      : current.filter((m) => m !== "wallet");
+                    const updated = { ...billingSettings, activePaymentMethods: next };
+                    MultiVendorStorage.saveBillingSettings(updated);
+                    setBillingSettings(updated);
+                    window.dispatchEvent(new Event("beitak-billing-updated"));
+                    toast.success("تم تحديث خيارات الدفع");
+                  }}
+                  className="w-5 h-5 accent-brand-primary cursor-pointer"
+                />
+              </div>
+
+              {/* InstaPay Method */}
+              <div className="bg-card p-4 rounded-xl border border-brand-dark/10 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-xs text-brand-dark block">
+                    تطبيق إنستا باي (InstaPay)
+                  </span>
+                  <span className="text-[10px] text-muted-foreground block">
+                    تحويل بنكي لحظي مباشر عبر تطبيق إنستا باي
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={billingSettings.activePaymentMethods?.includes("instapay") ?? false}
+                  onChange={(e) => {
+                    const current = billingSettings.activePaymentMethods || ["cod"];
+                    const next = e.target.checked
+                      ? Array.from(new Set([...current, "instapay"]))
+                      : current.filter((m) => m !== "instapay");
+                    const updated = { ...billingSettings, activePaymentMethods: next };
+                    MultiVendorStorage.saveBillingSettings(updated);
+                    setBillingSettings(updated);
+                    window.dispatchEvent(new Event("beitak-billing-updated"));
+                    toast.success("تم تحديث خيارات الدفع");
+                  }}
+                  className="w-5 h-5 accent-brand-primary cursor-pointer"
+                />
+              </div>
+            </div>
+
+            {/* Default Commission Settings */}
+            <div className="pt-4 border-t border-brand-dark/10 space-y-4">
+              <h4 className="font-extrabold text-xs text-brand-dark">
+                نسب العمولات المحددة افتراضياً لأنواع البائعين:
+              </h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-card p-3 rounded-xl border border-brand-dark/10 space-y-1">
+                  <label className="text-[10px] font-bold text-muted-foreground block">
+                    عمولة التجار الفرديين (%):
+                  </label>
+                  <input
+                    type="number"
+                    value={billingSettings.commissionRates?.merchant ?? 10}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      const updated = {
+                        ...billingSettings,
+                        commissionRates: {
+                          ...billingSettings.commissionRates,
+                          merchant: val,
+                          affiliate: billingSettings.commissionRates?.affiliate ?? 5,
+                          factory: billingSettings.commissionRates?.factory ?? 7,
+                        },
+                      };
+                      MultiVendorStorage.saveBillingSettings(updated);
+                      setBillingSettings(updated);
+                    }}
+                    className="w-full text-xs font-bold bg-brand-bg border border-brand-dark/10 rounded-lg p-2"
+                  />
+                </div>
+
+                <div className="bg-card p-3 rounded-xl border border-brand-dark/10 space-y-1">
+                  <label className="text-[10px] font-bold text-muted-foreground block">
+                    عمولة المسوقين بالعمولة (%):
+                  </label>
+                  <input
+                    type="number"
+                    value={billingSettings.commissionRates?.affiliate ?? 5}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      const updated = {
+                        ...billingSettings,
+                        commissionRates: {
+                          ...billingSettings.commissionRates,
+                          merchant: billingSettings.commissionRates?.merchant ?? 10,
+                          affiliate: val,
+                          factory: billingSettings.commissionRates?.factory ?? 7,
+                        },
+                      };
+                      MultiVendorStorage.saveBillingSettings(updated);
+                      setBillingSettings(updated);
+                    }}
+                    className="w-full text-xs font-bold bg-brand-bg border border-brand-dark/10 rounded-lg p-2"
+                  />
+                </div>
+
+                <div className="bg-card p-3 rounded-xl border border-brand-dark/10 space-y-1">
+                  <label className="text-[10px] font-bold text-muted-foreground block">
+                    عمولة الشركات والمصانع المعتمدة (%):
+                  </label>
+                  <input
+                    type="number"
+                    value={billingSettings.commissionRates?.factory ?? 7}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      const updated = {
+                        ...billingSettings,
+                        commissionRates: {
+                          ...billingSettings.commissionRates,
+                          merchant: billingSettings.commissionRates?.merchant ?? 10,
+                          affiliate: billingSettings.commissionRates?.affiliate ?? 5,
+                          factory: val,
+                        },
+                      };
+                      MultiVendorStorage.saveBillingSettings(updated);
+                      setBillingSettings(updated);
+                    }}
+                    className="w-full text-xs font-bold bg-brand-bg border border-brand-dark/10 rounded-lg p-2"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* WOMEN LOUNGE CONFIGURATION SECTION */}
@@ -1340,51 +1677,75 @@ export function SuperAdminDashboard() {
                       <p className="text-[10px] text-muted-foreground">
                         المالك: {sel.ownerName} | هاتف: {sel.phone} | بريد: {sel.email}
                       </p>
-                      <p className="text-[10px] font-semibold text-brand-dark">
-                        باقة الاشتراك: {activePlan?.name || sel.planId} (ينتهي{" "}
-                        {new Date(sel.planExpiresAt).toLocaleDateString("ar-EG")})
-                      </p>
+                      {(sel.commercialRegistration || sel.taxCard) && (
+                        <p className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                          سجل تجاري: {sel.commercialRegistration || "غير مدخل"} | بطاقة ضريبية:{" "}
+                          {sel.taxCard || "غير مدخل"}
+                        </p>
+                      )}
 
                       <div className="flex flex-col gap-2 p-2.5 bg-secondary/20 rounded-xl border border-brand-dark/5 mt-2">
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] font-bold text-muted-foreground">
-                            نوع تسجيل الشريك:
+                            نوع تسجيل البائع:
                           </span>
                           <select
                             value={sel.sellerType || "merchant"}
                             onChange={(e) => {
-                              const newType = e.target.value as "affiliate" | "merchant";
-                              const defaultCut = newType === "affiliate" ? 5 : 10;
-                              updateSellerConfig(sel.id, newType, defaultCut);
+                              const newType = e.target.value as Seller["sellerType"];
+                              let defaultCut = 10;
+                              if (newType === "affiliate") defaultCut = 5;
+                              if (newType === "factory") defaultCut = 7;
+                              const updated = sellers.map((s) =>
+                                s.id === sel.id
+                                  ? {
+                                      ...s,
+                                      sellerType: newType,
+                                      commissionCut: defaultCut,
+                                      isVerifiedCompany:
+                                        newType === "factory" ? true : s.isVerifiedCompany,
+                                    }
+                                  : s,
+                              );
+                              MarketplaceStore.saveSellers(updated);
+                              setSellers(updated);
+                              toast.success("تم تحديث نوع الحساب بنجاح");
                             }}
                             className="bg-card border border-brand-dark/10 rounded-lg px-2 py-1 text-[10px] outline-none font-bold"
                           >
-                            <option value="merchant">تاجر (Merchant)</option>
+                            <option value="merchant">تاجر فردي (Merchant)</option>
                             <option value="affiliate">مسوق بالعمولة (Affiliate)</option>
+                            <option value="factory">
+                              شركة / مصنع معتمد (Verified Company/Factory)
+                            </option>
                           </select>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] font-bold text-muted-foreground">
-                            {sel.sellerType === "affiliate"
-                              ? "عمولة المنصة من عمولة المسوق (1% - 10%):"
-                              : "عمولة المنصة من قيمة المبيعات (1% - 20%):"}
+                            عمولة المنصة المحددة للحساب (0% - 20%):
                           </span>
                           <input
                             type="number"
-                            min="1"
-                            max={sel.sellerType === "affiliate" ? 10 : 20}
-                            value={sel.commissionCut ?? (sel.sellerType === "affiliate" ? 5 : 10)}
+                            min="0"
+                            max={20}
+                            value={sel.commissionCut ?? 10}
                             onChange={(e) => {
-                              const cutVal = Math.min(
-                                sel.sellerType === "affiliate" ? 10 : 20,
-                                Math.max(1, Number(e.target.value) || 1),
+                              const cutVal = Math.min(20, Math.max(0, Number(e.target.value) || 0));
+                              const updated = sellers.map((s) =>
+                                s.id === sel.id ? { ...s, commissionCut: cutVal } : s,
                               );
-                              updateSellerConfig(sel.id, sel.sellerType || "merchant", cutVal);
+                              MarketplaceStore.saveSellers(updated);
+                              setSellers(updated);
                             }}
                             className="w-14 bg-card border border-brand-dark/10 rounded-lg px-1.5 py-0.5 text-[10px] text-center font-bold"
                           />
                           <span className="text-[10px] font-bold">%</span>
                         </div>
+                        <p className="text-[9px] text-amber-800 font-bold bg-amber-50 p-1.5 rounded-lg border border-amber-200/80 mt-1">
+                          {sel.sellerType === "affiliate"
+                            ? "💡 للمسوق بالعمولة: عمولة المنصة تُخصم فقط كنسبة من ربح وعمولة المسوق المكتسبة."
+                            : "💡 للتاجر أو المصنع: عمولة المنصة تُخصم كنسبة من سعر المنتج وإجمالي قيمة المبيعات."}
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -1394,7 +1755,7 @@ export function SuperAdminDashboard() {
                       {sel.status !== "approved" && (
                         <button
                           onClick={() => updateSellerStatus(sel.id, "approved")}
-                          className="bg-emerald-600 text-brand-bg hover:bg-emerald-700 px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1 transition"
+                          className="bg-emerald-600 text-brand-bg hover:bg-emerald-700 px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1 transition cursor-pointer"
                         >
                           <UserCheck className="w-3.5 h-3.5" /> تفعيل وقبول
                         </button>
@@ -1402,17 +1763,11 @@ export function SuperAdminDashboard() {
                       {sel.status === "approved" && (
                         <button
                           onClick={() => updateSellerStatus(sel.id, "suspended")}
-                          className="bg-destructive/10 text-destructive hover:bg-destructive hover:text-white px-3 py-1.5 rounded-lg text-[10px] font-bold transition"
+                          className="bg-destructive/10 text-destructive hover:bg-destructive hover:text-white px-3 py-1.5 rounded-lg text-[10px] font-bold transition cursor-pointer"
                         >
                           تعليق الحساب
                         </button>
                       )}
-                      <button
-                        onClick={() => addManualCredits(sel.id)}
-                        className="bg-brand-dark text-brand-bg hover:bg-brand-primary px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1 transition"
-                      >
-                        ⚡ شحن رصيد AI
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -1665,7 +2020,9 @@ export function SuperAdminDashboard() {
                       {vis.storageCredits} ميجابايت
                     </td>
                     <td className="p-3 text-muted-foreground">
-                      {new Date(vis.registeredAt).toLocaleDateString("ar-EG")}
+                      {vis.registeredAt && !isNaN(new Date(vis.registeredAt).getTime())
+                        ? new Date(vis.registeredAt).toLocaleDateString("ar-EG")
+                        : "حديثاً"}
                     </td>
                     <td className="p-3">
                       <span

@@ -25,13 +25,15 @@ import { DirectMessagingModal } from "@/components/DirectMessagingModal";
 
 import { useCart } from "@/lib/cart";
 import { useIsAdmin } from "@/lib/useIsAdmin";
-import { useEffect, useState, type ReactNode, type FormEvent } from "react";
+import { useEffect, useState, useCallback, type ReactNode, type FormEvent } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { User as SbUser } from "@supabase/supabase-js";
 import beitakLogo from "@/assets/beitak-logo.png";
 import { MarketplaceStore } from "@/lib/marketplaceStore";
-import { EGYPT_GOVERNORATES } from "@/types";
+import { Product, EGYPT_GOVERNORATES } from "@/types";
 import { LiveEditAdminBar } from "./LiveEditSystem";
+import { checkIsSuperAdmin, checkIsSeller } from "@/lib/rbac";
+import { SearchBarWithSuggestions } from "@/components/SearchBarWithSuggestions";
 import { toast } from "sonner";
 
 function useUser() {
@@ -48,7 +50,7 @@ export function SiteHeader() {
   const { count } = useCart();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const isAdmin = useIsAdmin();
+  const { isAdmin } = useIsAdmin();
   const user = useUser();
   const [q, setQ] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -59,24 +61,37 @@ export function SiteHeader() {
   const [chatModalOpen, setChatModalOpen] = useState(false);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
 
-  // Categories Dropdown state
-  const [categoriesOpen, setCategoriesOpen] = useState(false);
+  // Categories state
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
+  const [productsList, setProductsList] = useState<Product[]>([]);
+
+  useEffect(() => {
+    const loadProds = () => {
+      MarketplaceStore.getProducts().then((res) => setProductsList(res || []));
+    };
+    loadProds();
+    window.addEventListener("beitak-products-updated", loadProds);
+    return () => window.removeEventListener("beitak-products-updated", loadProds);
+  }, []);
 
   // Governorate Modal state
   const [govModalOpen, setGovModalOpen] = useState(false);
-  const [selectedGov, setSelectedGov] = useState(() => MarketplaceStore.getUserGovernorate());
+  const [selectedGov, setSelectedGov] = useState("جميع المحافظات");
 
-  const [themeConf, setThemeConf] = useState(() => MarketplaceStore.getDefaultThemeSettings());
+  useEffect(() => {
+    setSelectedGov(MarketplaceStore.getUserGovernorate());
+  }, []);
 
-  const updateNotifBadge = () => {
+  const [themeConf, setThemeConf] = useState(() => MarketplaceStore.getSiteThemeSettings());
+
+  const updateNotifBadge = useCallback(() => {
     if (!user) {
       setUnreadNotifCount(0);
       return;
     }
     const list = MarketplaceStore.getNotifications(user.id);
     setUnreadNotifCount(list.filter((n) => !n.read).length);
-  };
+  }, [user]);
 
   useEffect(() => {
     updateNotifBadge();
@@ -86,7 +101,7 @@ export function SiteHeader() {
       window.removeEventListener("beitak-notifications-updated", updateNotifBadge);
       window.removeEventListener("storage", updateNotifBadge);
     };
-  }, [user]);
+  }, [updateNotifBadge]);
 
   useEffect(() => {
     setThemeConf(MarketplaceStore.getSiteThemeSettings());
@@ -103,32 +118,35 @@ export function SiteHeader() {
   }, []);
 
   useEffect(() => {
-    supabase
-      .from("categories")
-      .select("id, name")
-      .order("sort_order")
-      .then(({ data }) => {
-        if (data && data.length > 0) {
-          setCategories(data);
-        } else {
-          setCategories([
-            { id: "c1", name: "غرف معيشة" },
-            { id: "c2", name: "غرف نوم" },
-            { id: "c3", name: "طاولات طعام" },
-            { id: "c4", name: "ديكورات ومفروشات" },
-            { id: "c5", name: "أجهزة كهربائية" },
-            { id: "c6", name: "سيارات ومحركات" },
-            { id: "c7", name: "عقارات وأراضٍ" },
-          ]);
-        }
-      });
+    const syncCats = () => {
+      const storeCats = MarketplaceStore.getCategories();
+      if (storeCats && storeCats.length > 0) {
+        setCategories(storeCats.map((c) => ({ id: c.id, name: c.name })));
+      } else {
+        supabase
+          .from("categories")
+          .select("id, name")
+          .order("sort_order")
+          .then(({ data }) => {
+            const filtered = MarketplaceStore.filterDeletedCategories(data || []);
+            setCategories(filtered);
+          });
+      }
+    };
+
+    syncCats();
+    window.addEventListener("beitak-categories-updated", syncCats);
+    window.addEventListener("storage", syncCats);
+    return () => {
+      window.removeEventListener("beitak-categories-updated", syncCats);
+      window.removeEventListener("storage", syncCats);
+    };
   }, []);
 
   const handleSelectGov = async (gov: string) => {
     setSelectedGov(gov);
     MarketplaceStore.setUserGovernorate(gov);
 
-    // Save to user metadata if logged in
     if (user) {
       await supabase.auth.updateUser({
         data: { ...user.user_metadata, governorate: gov },
@@ -153,15 +171,18 @@ export function SiteHeader() {
     navigate({ to: "/" });
   };
 
-  const simRole = MarketplaceStore.getSimulationRole();
-  const isSellerOrAdmin = isAdmin || simRole === "seller" || simRole === "super_admin";
+  const isSuperAdmin = checkIsSuperAdmin(user);
+  const isSeller = checkIsSeller(user);
+  const isSellerOrAdmin = isSuperAdmin || isSeller;
 
   const mainNavLinks = [
     { to: "/" as const, label: "الرئيسية" },
     { to: "/products" as const, label: "المنتجات" },
     { to: "/categories" as const, label: "الأقسام" },
     { to: "/help" as const, label: "المساعدة" },
-    ...(isSellerOrAdmin ? [{ to: "/seller-guide" as const, label: "المركز التعليمي للبائعين" }] : []),
+    ...(isSellerOrAdmin
+      ? [{ to: "/seller-guide" as const, label: "المركز التعليمي للبائعين" }]
+      : []),
     { to: "/contact" as const, label: "تواصل معنا" },
   ];
 
@@ -174,12 +195,8 @@ export function SiteHeader() {
         </span>
       </div>
 
-      <div
-        className={`px-4 py-2.5 flex ${themeConf.headerStyle === "centered" ? "flex-col items-center justify-center text-center gap-2" : "items-center gap-3"} max-w-7xl mx-auto`}
-      >
-        <div
-          className={`flex items-center gap-3 ${themeConf.headerStyle === "centered" ? "justify-center w-full" : ""}`}
-        >
+      <div className={`px-4 py-2.5 flex items-center justify-between gap-3 max-w-7xl mx-auto`}>
+        <div className="flex items-center gap-3">
           <button
             onClick={() => setMenuOpen((v) => !v)}
             className="md:hidden w-9 h-9 grid place-items-center rounded-xl border border-brand-dark/10"
@@ -194,147 +211,157 @@ export function SiteHeader() {
           </Link>
         </div>
 
-        {/* Desktop Navigation Links */}
-        <nav
-          className={`hidden md:flex items-center gap-1 ${themeConf.headerStyle === "centered" ? "justify-center w-full mb-1" : "mr-2"}`}
-        >
-          {mainNavLinks.map((l) => {
-            const active = pathname === l.to;
-            return (
-              <Link
-                key={l.to}
-                to={l.to}
-                className={`px-3 py-1.5 rounded-xl text-xs font-black transition ${
-                  active
-                    ? "text-brand-primary bg-brand-primary/10"
-                    : "text-brand-dark/80 hover:text-brand-dark hover:bg-secondary"
-                }`}
-              >
-                {l.label}
-              </Link>
-            );
-          })}
-        </nav>
+        {/* Amazon-Style Search Bar with Suggestions */}
+        <div className="flex-1 max-w-xl mx-auto">
+          <SearchBarWithSuggestions products={productsList} initialValue={q} isHeader={true} />
+        </div>
 
-        {/* Search Bar */}
-        <form
-          onSubmit={submit}
-          className={`flex-1 relative max-w-xl mx-auto ${themeConf.headerStyle === "centered" ? "w-full" : ""}`}
-        >
-          <Search className="w-4 h-4 absolute right-3.5 top-1/2 -translate-y-1/2 text-brand-dark/40 pointer-events-none" />
-          <input
-            type="search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="ابحث بالاسم، القسم، البائع، أو المحافظة..."
-            className="w-full bg-white border border-brand-dark/15 rounded-full pr-10 pl-4 py-2 text-xs outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20"
-            aria-label="ابحث في المنتجات"
-          />
-        </form>
-
-        {/* Dedicated Governorate Button for Header */}
-        <button
-          onClick={() => setGovModalOpen(true)}
-          className="hidden lg:flex items-center gap-1.5 bg-secondary text-brand-dark px-3 py-2 rounded-xl text-xs font-bold border border-brand-dark/10 hover:bg-brand-dark/10 transition cursor-pointer"
-        >
-          <MapPin className="w-3.5 h-3.5 text-brand-primary" />
-          <span>المحافظة: {selectedGov}</span>
-        </button>
-
-        {/* Account Menu */}
-        <div className="relative">
+        <div className="flex items-center gap-2">
+          {/* Dedicated Governorate Button for Header */}
           <button
-            onClick={() => setAcctOpen((v) => !v)}
-            className="w-10 h-10 rounded-full border border-brand-dark/10 grid place-items-center hover:bg-secondary transition cursor-pointer"
-            aria-label="الحساب"
+            onClick={() => setGovModalOpen(true)}
+            className="hidden lg:flex items-center gap-1.5 bg-secondary text-brand-dark px-3 py-2 rounded-xl text-xs font-bold border border-brand-dark/10 hover:bg-brand-dark/10 transition cursor-pointer"
           >
-            <User className="w-4.5 h-4.5 text-brand-dark" />
+            <MapPin className="w-3.5 h-3.5 text-brand-primary" />
+            <span>المحافظة: {selectedGov}</span>
           </button>
-          {acctOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setAcctOpen(false)} aria-hidden />
-              <div className="absolute left-0 mt-2 w-60 bg-card rounded-2xl border border-brand-dark/10 shadow-xl overflow-hidden z-50 text-xs">
-                {user ? (
-                  <>
-                    <div className="px-4 py-3 border-b border-brand-dark/5 bg-secondary/50">
-                      <p className="text-[10px] text-muted-foreground font-bold">تسجيل الدخول كـ</p>
-                      <p className="text-xs font-black text-brand-dark truncate" dir="ltr">
-                        {user.email}
-                      </p>
-                    </div>
 
-                    <Link
-                      to="/profile"
-                      onClick={() => setAcctOpen(false)}
-                      className="flex items-center gap-2 px-4 py-3 font-bold hover:bg-secondary text-brand-dark"
-                    >
-                      <User className="w-4 h-4 text-brand-primary" /> حسابي الشخصي والإعدادات
-                    </Link>
+          {/* Account Menu */}
+          <div className="relative">
+            <button
+              onClick={() => setAcctOpen((v) => !v)}
+              className="w-10 h-10 rounded-full border border-brand-dark/10 grid place-items-center hover:bg-secondary transition cursor-pointer"
+              aria-label="الحساب"
+            >
+              <User className="w-4.5 h-4.5 text-brand-dark" />
+            </button>
+            {acctOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setAcctOpen(false)}
+                  aria-hidden
+                />
+                <div className="absolute left-0 mt-2 w-64 bg-card rounded-2xl border border-brand-dark/10 shadow-xl overflow-hidden z-50 text-xs">
+                  {user ? (
+                    <>
+                      <div className="px-4 py-3 border-b border-brand-dark/5 bg-secondary/50">
+                        <p className="text-[10px] text-muted-foreground font-bold">
+                          تسجيل الدخول كـ
+                        </p>
+                        <p className="text-xs font-black text-brand-dark truncate" dir="ltr">
+                          {user.email}
+                        </p>
+                        <span className="inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full font-bold bg-brand-primary/10 text-brand-primary">
+                          {isSuperAdmin
+                            ? "المدير العام (Super Admin)"
+                            : isSeller
+                              ? "حساب تاجر (Seller)"
+                              : "حساب مشتري (Customer)"}
+                        </span>
+                      </div>
 
-                    {isSellerOrAdmin && (
                       <Link
-                        to="/seller-guide"
+                        to="/profile"
                         onClick={() => setAcctOpen(false)}
                         className="flex items-center gap-2 px-4 py-3 font-bold hover:bg-secondary text-brand-dark"
                       >
-                        <BookOpen className="w-4 h-4 text-amber-600" /> المركز التعليمي للبائعين
+                        <User className="w-4 h-4 text-brand-primary" /> حسابي الشخصي والإعدادات
                       </Link>
-                    )}
 
-                    {isAdmin && (
-                      <Link
-                        to="/admin"
-                        onClick={() => setAcctOpen(false)}
-                        className="flex items-center gap-2 px-4 py-3 font-bold hover:bg-secondary text-emerald-700 bg-emerald-50/50"
+                      {isSuperAdmin && (
+                        <Link
+                          to="/admin"
+                          onClick={() => setAcctOpen(false)}
+                          className="flex items-center gap-2 px-4 py-3 font-bold hover:bg-secondary text-emerald-700 bg-emerald-50/50"
+                        >
+                          <LayoutDashboard className="w-4 h-4" /> لوحة الإدارة (Super Admin)
+                        </Link>
+                      )}
+
+                      {!isSuperAdmin && isSeller && (
+                        <Link
+                          to="/admin"
+                          search={{ tab: "seller_dashboard" }}
+                          onClick={() => setAcctOpen(false)}
+                          className="flex items-center gap-2 px-4 py-3 font-bold hover:bg-secondary text-amber-800 bg-amber-50/50"
+                        >
+                          <Store className="w-4 h-4 text-amber-600" /> لوحة تحكم متجري (Seller)
+                        </Link>
+                      )}
+
+                      {isSellerOrAdmin && (
+                        <Link
+                          to="/seller-guide"
+                          onClick={() => setAcctOpen(false)}
+                          className="flex items-center gap-2 px-4 py-3 font-bold hover:bg-secondary text-brand-dark"
+                        >
+                          <BookOpen className="w-4 h-4 text-amber-600" /> المركز التعليمي للبائعين
+                        </Link>
+                      )}
+
+                      {!isSellerOrAdmin && (
+                        <Link
+                          to="/profile"
+                          search={{ tab: "become_seller" }}
+                          onClick={() => setAcctOpen(false)}
+                          className="flex items-center gap-2 px-4 py-3 font-bold hover:bg-secondary text-brand-dark"
+                        >
+                          <Store className="w-4 h-4 text-brand-primary" /> طلب الانضمام كبائع
+                        </Link>
+                      )}
+
+                      <button
+                        onClick={logout}
+                        className="w-full flex items-center gap-2 px-4 py-3 font-bold hover:bg-secondary text-destructive border-t border-brand-dark/5 cursor-pointer"
                       >
-                        <LayoutDashboard className="w-4 h-4" /> لوحة إدارتك
+                        <LogOut className="w-4 h-4" /> تسجيل الخروج
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="p-3 bg-brand-primary/5 border-b border-brand-dark/5 text-center">
+                        <p className="text-xs font-bold text-brand-dark">أهلاً بك في بيتك</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          قم بتسجيل الدخول للوصول لحسابك
+                        </p>
+                      </div>
+                      <Link
+                        to="/auth"
+                        onClick={() => setAcctOpen(false)}
+                        className="block px-4 py-3 font-black hover:bg-secondary text-brand-dark text-center"
+                      >
+                        تسجيل الدخول
                       </Link>
-                    )}
+                      <Link
+                        to="/auth"
+                        search={{ mode: "signup" }}
+                        onClick={() => setAcctOpen(false)}
+                        className="block px-4 py-3 hover:bg-secondary border-t border-brand-dark/5 text-brand-dark font-bold text-center"
+                      >
+                        إنشاء حساب جديد
+                      </Link>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
 
-                    <button
-                      onClick={logout}
-                      className="w-full flex items-center gap-2 px-4 py-3 font-bold hover:bg-secondary text-destructive border-t border-brand-dark/5 cursor-pointer"
-                    >
-                      <LogOut className="w-4 h-4" /> تسجيل الخروج
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <Link
-                      to="/auth"
-                      onClick={() => setAcctOpen(false)}
-                      className="block px-4 py-3 font-black hover:bg-secondary text-brand-dark"
-                    >
-                      تسجيل الدخول
-                    </Link>
-                    <Link
-                      to="/auth"
-                      search={{ mode: "signup" }}
-                      onClick={() => setAcctOpen(false)}
-                      className="block px-4 py-3 hover:bg-secondary border-t border-brand-dark/5 text-brand-dark font-bold"
-                    >
-                      إنشاء حساب جديد
-                    </Link>
-                  </>
-                )}
-              </div>
-            </>
-          )}
+          {/* Cart Link */}
+          <Link
+            to="/cart"
+            className="w-10 h-10 rounded-full bg-brand-primary text-white grid place-items-center relative flex-shrink-0 hover:bg-brand-dark transition shadow-2xs"
+            aria-label="السلة"
+          >
+            <ShoppingCart className="w-4.5 h-4.5" />
+            {count > 0 && (
+              <span className="absolute -top-1 -left-1 bg-brand-accent text-brand-dark text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-brand-bg shadow-sm">
+                {count}
+              </span>
+            )}
+          </Link>
         </div>
-
-        {/* Cart Link */}
-        <Link
-          to="/cart"
-          className="w-10 h-10 rounded-full bg-brand-primary text-white grid place-items-center relative flex-shrink-0 hover:bg-brand-dark transition shadow-2xs"
-          aria-label="السلة"
-        >
-          <ShoppingCart className="w-4.5 h-4.5" />
-          {count > 0 && (
-            <span className="absolute -top-1 -left-1 bg-brand-accent text-brand-dark text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-brand-bg shadow-sm">
-              {count}
-            </span>
-          )}
-        </Link>
       </div>
 
       {/* Notification Modal */}
@@ -343,7 +370,7 @@ export function SiteHeader() {
       {/* Direct Messaging Modal */}
       <DirectMessagingModal isOpen={chatModalOpen} onClose={() => setChatModalOpen(false)} />
 
-      {/* Dedicated Site Content Navigation Bar */}
+      {/* Primary Brown Content Navigation Bar (Single Clear System) */}
       <div className="bg-brand-dark/95 text-white py-2 px-4 border-t border-brand-dark/10 shadow-inner">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 overflow-x-auto no-scrollbar scroll-smooth text-xs">
           <div className="flex items-center gap-2 shrink-0">
@@ -357,25 +384,48 @@ export function SiteHeader() {
               <span>الأقسام</span>
             </Link>
 
-            {/* Site Pages Direct Navigation Links */}
+            {/* Main Primary Links */}
             <Link
               to="/"
-              className="shrink-0 bg-white/10 hover:bg-white/20 text-white px-3.5 py-1.5 rounded-full font-bold transition text-[11px]"
+              className={`shrink-0 px-3.5 py-1.5 rounded-full font-bold transition text-[11px] ${
+                pathname === "/"
+                  ? "bg-brand-primary text-white"
+                  : "bg-white/10 hover:bg-white/20 text-white"
+              }`}
             >
               الرئيسية
             </Link>
 
             <Link
               to="/products"
-              className="shrink-0 bg-white/10 hover:bg-white/20 text-white px-3.5 py-1.5 rounded-full font-bold transition text-[11px]"
+              className={`shrink-0 px-3.5 py-1.5 rounded-full font-bold transition text-[11px] ${
+                pathname === "/products"
+                  ? "bg-brand-primary text-white"
+                  : "bg-white/10 hover:bg-white/20 text-white"
+              }`}
             >
               كل المنتجات
+            </Link>
+
+            <Link
+              to="/help"
+              className={`shrink-0 px-3.5 py-1.5 rounded-full font-bold transition text-[11px] ${
+                pathname === "/help"
+                  ? "bg-brand-primary text-white"
+                  : "bg-white/10 hover:bg-white/20 text-white"
+              }`}
+            >
+              المساعدة
             </Link>
 
             {isSellerOrAdmin && (
               <Link
                 to="/seller-guide"
-                className="shrink-0 bg-white/10 hover:bg-white/20 text-white px-3.5 py-1.5 rounded-full font-bold transition text-[11px]"
+                className={`shrink-0 px-3.5 py-1.5 rounded-full font-bold transition text-[11px] ${
+                  pathname === "/seller-guide"
+                    ? "bg-brand-primary text-white"
+                    : "bg-white/10 hover:bg-white/20 text-white"
+                }`}
               >
                 المركز التعليمي للبائعين
               </Link>
@@ -383,13 +433,17 @@ export function SiteHeader() {
 
             <Link
               to="/contact"
-              className="shrink-0 bg-white/10 hover:bg-white/20 text-white px-3.5 py-1.5 rounded-full font-bold transition text-[11px]"
+              className={`shrink-0 px-3.5 py-1.5 rounded-full font-bold transition text-[11px] ${
+                pathname === "/contact"
+                  ? "bg-brand-primary text-white"
+                  : "bg-white/10 hover:bg-white/20 text-white"
+              }`}
             >
               تواصل معنا
             </Link>
           </div>
 
-          {/* Dedicated Notifications & Direct Messaging Actions in Content Bar */}
+          {/* Notifications & Messages Actions */}
           <div className="flex items-center gap-2 shrink-0">
             {user ? (
               <Link
@@ -515,7 +569,7 @@ export function SiteHeader() {
 }
 
 export function SiteFooter() {
-  const [themeConf, setThemeConf] = useState(() => MarketplaceStore.getDefaultThemeSettings());
+  const [themeConf, setThemeConf] = useState(() => MarketplaceStore.getSiteThemeSettings());
 
   useEffect(() => {
     setThemeConf(MarketplaceStore.getSiteThemeSettings());

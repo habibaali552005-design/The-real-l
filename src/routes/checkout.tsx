@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { MultiVendorStorage } from "@/lib/multiVendorStorage";
 import { MarketplaceStore } from "@/lib/marketplaceStore";
+import { requestCurrentLocation } from "@/lib/location";
+import { saveSyncedAddress, getSyncedAddress } from "@/lib/addressSync";
 import {
   AlertCircle,
   CheckCircle2,
@@ -21,6 +23,8 @@ import {
   RefreshCw,
   Check,
   Send,
+  Navigation,
+  Loader2,
 } from "lucide-react";
 
 const schema = z.object({
@@ -147,23 +151,69 @@ export function CheckoutPage() {
     }
   };
 
-  // Detect existing customer history on phone input
-  // Auto-populate logged in user profile details
+  const [detectingLocation, setDetectingLocation] = useState(false);
+
+  // Auto-populate logged in user profile details and synced address
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
-      if (data?.user) {
-        const meta = data.user.user_metadata || {};
-        const savedGov = meta.governorate || MarketplaceStore.getUserGovernorate();
+      const userId = data?.user?.id;
+      const synced = getSyncedAddress(userId);
+      if (synced && synced.detailedAddress) {
         setForm((prev) => ({
           ...prev,
-          customer_name: meta.full_name || meta.name || prev.customer_name,
-          phone: meta.phone || prev.phone,
+          customer_name: synced.fullName || prev.customer_name,
+          phone: synced.phonePrimary || prev.phone,
+          backup_phone: synced.phoneSecondary || prev.backup_phone,
+          governorate: synced.governorate || prev.governorate,
+          address: synced.detailedAddress,
+        }));
+      }
+
+      if (data?.user) {
+        const meta = data.user.user_metadata || {};
+        const savedGov =
+          meta.governorate || synced?.governorate || MarketplaceStore.getUserGovernorate();
+        setForm((prev) => ({
+          ...prev,
+          customer_name: meta.full_name || meta.name || synced?.fullName || prev.customer_name,
+          phone: meta.phone_primary || meta.phone || synced?.phonePrimary || prev.phone,
+          backup_phone: meta.phone_secondary || synced?.phoneSecondary || prev.backup_phone,
           governorate: savedGov || prev.governorate,
-          address: meta.address || prev.address,
+          address: meta.detailed_address || meta.address || synced?.detailedAddress || prev.address,
         }));
       }
     });
   }, []);
+
+  const handleUseLocationInCheckout = async () => {
+    setDetectingLocation(true);
+    try {
+      const res = await requestCurrentLocation();
+      if (res.governorate) {
+        const matchedGov = egyptData.find(
+          (g) => g.nameAr.includes(res.governorate!) || res.governorate!.includes(g.nameAr),
+        );
+        if (matchedGov) {
+          setSelectedGovId(matchedGov.id);
+          setForm((prev) => ({ ...prev, governorate: matchedGov.nameAr }));
+        }
+      }
+      if (res.city) setSelectedDistrict(res.city);
+      if (res.formattedAddress) {
+        setForm((prev) => ({
+          ...prev,
+          address: prev.address
+            ? `${prev.address} - ${res.formattedAddress}`
+            : res.formattedAddress,
+        }));
+      }
+      toast.success("تم التحديد التلقائي لعنوانك من الخريطة والموقع الجغرافي!");
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setDetectingLocation(false);
+    }
+  };
 
   useEffect(() => {
     const cleanedPhone = form.phone.trim();
@@ -194,12 +244,27 @@ export function CheckoutPage() {
   }, [form.phone]);
 
   // Send Free Phone OTP
-  // Retrieve seller configured payment methods from platform settings
-  const billingSettings = MultiVendorStorage.getBillingSettings();
+  // Retrieve active payment methods configured by SuperAdmin
+  const [billingSettings, setBillingSettings] = useState(() =>
+    MultiVendorStorage.getBillingSettings(),
+  );
+
+  useEffect(() => {
+    const handleBillingUpdate = () => {
+      setBillingSettings(MultiVendorStorage.getBillingSettings());
+    };
+    window.addEventListener("beitak-billing-updated", handleBillingUpdate);
+    window.addEventListener("storage", handleBillingUpdate);
+    return () => {
+      window.removeEventListener("beitak-billing-updated", handleBillingUpdate);
+      window.removeEventListener("storage", handleBillingUpdate);
+    };
+  }, []);
+
   const allowedMethods =
-    billingSettings.paymentMethods && billingSettings.paymentMethods.length > 0
-      ? billingSettings.paymentMethods
-      : ["cod", "card", "wallet", "instapay"];
+    billingSettings.activePaymentMethods && billingSettings.activePaymentMethods.length > 0
+      ? billingSettings.activePaymentMethods
+      : ["cod"];
 
   const handleSendOtp = () => {
     const cleanedPhone = form.phone.trim();
@@ -309,6 +374,8 @@ export function CheckoutPage() {
         `[رقم هاتف احتياطي: ${parsed.data.backup_phone}] [طريقة الدفع: ${paymentMethodLabel}] ${finalNotes}`.trim();
     }
 
+    const orderNum = "BTK-" + Math.floor(100000 + Math.random() * 900000);
+
     const { error } = await supabase.from("orders").insert({
       customer_name: parsed.data.customer_name,
       phone: parsed.data.phone,
@@ -322,6 +389,7 @@ export function CheckoutPage() {
         name: i.name,
         price: i.price,
         quantity: i.quantity,
+        image_url: i.image_url,
         selectedColor: i.selectedColor || null,
         selectedSize: i.selectedSize || null,
       })),
@@ -335,8 +403,81 @@ export function CheckoutPage() {
       return;
     }
 
+    // Save order locally for user
+    MarketplaceStore.addOrder({
+      customerName: parsed.data.customer_name,
+      phone: parsed.data.phone,
+      governorate: parsed.data.governorate,
+      area: parsed.data.area,
+      address: parsed.data.address,
+      notes: finalNotes || "",
+      items: items.map((i) => ({
+        id: i.id,
+        name: i.name,
+        price: i.price,
+        quantity: i.quantity,
+        image_url: i.image_url,
+        selectedColor: i.selectedColor || "",
+        selectedSize: i.selectedSize || "",
+      })),
+      totalAmount: finalTotal,
+      paymentMethod: paymentMethodLabel,
+      status: "pending",
+    });
+
+    // Notify each product seller with full customer & shipping details
+    const sellerItemsMap: Record<string, typeof items> = {};
     items.forEach((item) => {
-      MultiVendorStorage.getProductSeller(item.id);
+      const sellerId = MultiVendorStorage.getProductSeller(item.id) || "seller-habiba";
+      if (!sellerItemsMap[sellerId]) sellerItemsMap[sellerId] = [];
+      sellerItemsMap[sellerId].push(item);
+    });
+
+    Object.entries(sellerItemsMap).forEach(([sId, sItems]) => {
+      const sTotal = sItems.reduce((acc, it) => acc + it.price * it.quantity, 0);
+      const itemsListText = sItems
+        .map(
+          (it) =>
+            `• ${it.name} (كمية: ${it.quantity}${it.selectedColor ? `, لون: ${it.selectedColor}` : ""}${it.selectedSize ? `, مقاس: ${it.selectedSize}` : ""})`,
+        )
+        .join("\n");
+
+      // System notification to seller
+      MarketplaceStore.addNotification(
+        {
+          title: `📦 طلب جديد #${orderNum} بقيمة ${sTotal.toLocaleString()} ج.م`,
+          message: `طلب جديد من العميل: ${parsed.data.customer_name}\nرقم الهاتف: ${parsed.data.phone}${parsed.data.backup_phone ? ` - احتياطي: ${parsed.data.backup_phone}` : ""}\nالعنوان: ${parsed.data.governorate}، ${parsed.data.area}، ${parsed.data.address}\nطريقة الدفع: ${paymentMethodLabel}\nالمنتجات:\n${itemsListText}`,
+          type: "order",
+          link: "/admin?tab=seller_dashboard",
+        },
+        sId,
+      );
+
+      // Save complete seller customer order
+      MarketplaceStore.addSellerCustomerOrder({
+        orderNumber: orderNum,
+        sellerId: sId,
+        customerName: parsed.data.customer_name,
+        phone: parsed.data.phone,
+        backupPhone: parsed.data.backup_phone || "",
+        governorate: parsed.data.governorate,
+        area: parsed.data.area,
+        address: parsed.data.address,
+        notes: finalNotes || "",
+        paymentMethod: paymentMethodLabel,
+        items: sItems.map((it) => ({
+          id: it.id,
+          name: it.name,
+          price: it.price,
+          quantity: it.quantity,
+          image_url: it.image_url,
+          selectedColor: it.selectedColor,
+          selectedSize: it.selectedSize,
+        })),
+        total: sTotal,
+        status: "pending",
+        createdAt: new Date().toISOString(),
+      });
     });
 
     clear();
@@ -483,6 +624,36 @@ export function CheckoutPage() {
                 dir="ltr"
               />
             </Field>
+
+            {/* GPS Location Auto Detection Button */}
+            <div className="flex items-center justify-between bg-brand-bg/60 p-3 rounded-2xl border border-brand-dark/10">
+              <div>
+                <span className="text-xs font-bold text-brand-dark block">
+                  عنوان التوصيل المباشر
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  تحديد الموقع بالـ GPS يضمن وصول الشحنة بدقة متناهية
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleUseLocationInCheckout}
+                disabled={detectingLocation}
+                className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer shrink-0"
+              >
+                {detectingLocation ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                    <span>جاري التحديد...</span>
+                  </>
+                ) : (
+                  <>
+                    <Navigation className="w-3.5 h-3.5 text-emerald-600 fill-emerald-600/20" />
+                    <span>استخدام موقعي الحالي (GPS)</span>
+                  </>
+                )}
+              </button>
+            </div>
 
             {/* Smart cascading address selectors */}
             <div className="grid grid-cols-2 gap-4">

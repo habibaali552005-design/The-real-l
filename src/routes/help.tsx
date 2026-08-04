@@ -28,8 +28,7 @@ export const Route = createFileRoute("/help")({
 
 export function HelpCenterPage() {
   const { isAdmin } = useIsAdmin();
-  const simRole = MarketplaceStore.getSimulationRole();
-  const canEdit = isAdmin && simRole !== "visitor" && simRole !== "customer";
+  const canEdit = isAdmin;
   const [articles, setArticles] = useState<HelpArticle[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("الكل");

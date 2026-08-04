@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { PageShell } from "@/components/Layout";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { MarketplaceStore } from "@/lib/marketplaceStore";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -49,7 +49,7 @@ export function SellerStorePage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
 
-  const loadSellersAndProducts = async () => {
+  const loadSellersAndProducts = useCallback(async () => {
     // Load sellers from custom state / Supabase
     const { data: dbSellers } = await supabase.from("sellers").select("*");
     const defaultSellers = [
@@ -95,7 +95,7 @@ export function SellerStorePage() {
     const customProds = Object.values(MarketplaceStore.getCustomProducts() || {});
     const combined = [...(dbProds || []), ...customProds];
     setProducts(MarketplaceStore.filterDeletedProducts(combined));
-  };
+  }, [selectedSellerId]);
 
   useEffect(() => {
     loadSellersAndProducts();
@@ -105,7 +105,7 @@ export function SellerStorePage() {
       window.removeEventListener("beitak-products-updated", loadSellersAndProducts);
       window.removeEventListener("storage", loadSellersAndProducts);
     };
-  }, []);
+  }, [loadSellersAndProducts]);
 
   const activeSeller = useMemo(() => {
     return sellers.find((s) => s.id === selectedSellerId) || sellers[0] || null;

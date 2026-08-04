@@ -29,6 +29,8 @@ import { ProductQuickViewModal } from "@/components/ProductQuickViewModal";
 import { Product, EGYPT_GOVERNORATES, isWomenProduct } from "@/types";
 
 import { MarketplaceStore, CategoryNode } from "@/lib/marketplaceStore";
+import { rankProductsAmazonStyle, detectTypoCorrection } from "@/lib/searchEngine";
+import { SearchBarWithSuggestions } from "@/components/SearchBarWithSuggestions";
 
 function getCategoryFamilyNames(activeCat: string, categoryTree: CategoryNode[]): Set<string> {
   const family = new Set<string>();
@@ -128,19 +130,14 @@ const productsQuery = {
 const categoriesQuery = {
   queryKey: ["categories"],
   queryFn: async () => {
-    const { data, error } = await supabase.from("categories").select("*").order("sort_order");
-    if (error) throw error;
+    const { data } = await supabase.from("categories").select("*").order("sort_order");
     let list = (data || []) as { id: string; name: string }[];
+    list = MarketplaceStore.filterDeletedCategories(list);
     if (list.length === 0) {
-      list = [
-        { id: "cat-1", name: "أثاث ومفروشات" },
-        { id: "cat-2", name: "غرف معيشة" },
-        { id: "cat-3", name: "غرف نوم" },
-        { id: "cat-4", name: "مطابخ وأدوات منزلية" },
-        { id: "cat-5", name: "أجهزة إلكترونية وهواتف" },
-      ];
+      const storeCats = MarketplaceStore.getCategories();
+      list = storeCats.map((c) => ({ id: c.id, name: c.name }));
     }
-    return list;
+    return MarketplaceStore.filterDeletedCategories(list);
   },
 };
 
@@ -155,6 +152,7 @@ const searchSchema = z.object({
   color: z.string().optional(),
   size: z.string().optional(),
   brand: z.string().optional(),
+  product: z.string().optional(),
 });
 
 export const Route = createFileRoute("/products")({
@@ -222,12 +220,25 @@ function ProductsPage() {
   const [viewMode, setViewMode] = useState<"grid-3" | "grid-4" | "list">("grid-3");
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
+  // Auto open product modal if product ID is passed in search params
+  useEffect(() => {
+    if (search.product && rawProducts) {
+      const found = (rawProducts as Product[]).find((p) => p.id === search.product);
+      if (found) {
+        setQuickViewProduct(found);
+      }
+    }
+  }, [search.product, rawProducts]);
+
   // Local live search query state for smooth typing
   const [searchInput, setSearchInput] = useState(search.q ?? "");
 
-  // Exclude Women Lounge products from standard shop catalog
+  // Include Women Lounge products in catalog for female users
+  const userGender = MarketplaceStore.getUserGender();
+  const isFemale = userGender === "female";
+
   const products: Product[] = ((rawProducts || []) as unknown as Product[]).filter(
-    (p) => !isWomenProduct(p),
+    (p) => isFemale || !isWomenProduct(p),
   );
   const CATEGORIES = ["الكل", ...cats.map((c) => c.name)];
   const activeCat = search.cat || "الكل";
@@ -294,14 +305,19 @@ function ProductsPage() {
     return true;
   });
 
-  // Sort Logic
-  filtered = [...filtered].sort((a, b) => {
-    if (sort === "price_asc") return Number(a.price) - Number(b.price);
-    if (sort === "price_desc") return Number(b.price) - Number(a.price);
-    if (sort === "name") return a.name.localeCompare(b.name, "ar");
-    if (sort === "rating") return (b.rating || 5) - (a.rating || 5);
-    return 0;
-  });
+  // Apply Amazon-Style Ranking when search query is entered
+  if (query) {
+    filtered = rankProductsAmazonStyle(filtered, query);
+  } else {
+    // Sort Logic when no search query
+    filtered = [...filtered].sort((a, b) => {
+      if (sort === "price_asc") return Number(a.price) - Number(b.price);
+      if (sort === "price_desc") return Number(b.price) - Number(a.price);
+      if (sort === "name") return a.name.localeCompare(b.name, "ar");
+      if (sort === "rating") return (b.rating || 5) - (a.rating || 5);
+      return 0;
+    });
+  }
 
   const updateSearch = (patch: Record<string, unknown>) =>
     navigate({
@@ -396,7 +412,12 @@ function ProductsPage() {
 
           {/* Root Categories */}
           {categoryTree
-            .filter((c) => !c.parentId)
+            .filter(
+              (c) =>
+                !c.parentId &&
+                (userGender !== "male" ||
+                  (!c.name.includes("نساء") && c.slug !== "women" && c.id !== "cat-women")),
+            )
             .map((rootCat) => {
               const isRootSelected =
                 activeCat === rootCat.name ||

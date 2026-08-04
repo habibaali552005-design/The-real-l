@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
+import { MarketplaceStore } from "@/lib/marketplaceStore";
 
 const searchSchema = z.object({
   mode: z.enum(["login", "signup"]).optional(),
@@ -77,19 +78,31 @@ function AuthPage() {
           navigate({ to: (search.redirect as "/") ?? "/" });
         }
       } else {
-        const { error } = await supabase.auth.signUp({
+        const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
           email,
           password,
           options: {
             emailRedirectTo: `${window.location.origin}/`,
-            data: { full_name: name, gender },
+            data: { full_name: name, gender, role: "buyer" },
           },
         });
-        if (error) {
-          toast.error(error.message || "عذراً، تعذر إنشاء الحساب");
+
+        if (signUpErr) {
+          // Clean sanitized error message
+          let userMsg =
+            "عذراً، تعذر إنشاء الحساب. يرجى التأكد من صحة البريد الإلكتروني وكلمة المرور.";
+          if (signUpErr.message?.toLowerCase().includes("already registered")) {
+            userMsg = "هذا البريد الإلكتروني مسجل بالفعل. يرجى تسجيل الدخول بدلاً من ذلك.";
+          }
+          toast.error(userMsg);
         } else {
+          // Automatically log the user in if session not established
+          if (!signUpData.session) {
+            await supabase.auth.signInWithPassword({ email, password }).catch(() => {});
+          }
+
           MarketplaceStore.setUserGender(gender);
-          toast.success("تم إنشاء الحساب بنجاح");
+          toast.success("🎉 مرحباً بك في منصة بيتك! تم إنشاء حسابك وتأكيده بنجاح.");
           navigate({ to: (search.redirect as "/") ?? "/" });
         }
       }
@@ -154,7 +167,7 @@ function AuthPage() {
                   onChange={() => setGender("female")}
                   className="w-4 h-4 accent-pink-600 cursor-pointer"
                 />
-                أنثى (يتيح الوصول لقسم النساء)
+                أنثى
               </label>
               <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-brand-dark">
                 <input

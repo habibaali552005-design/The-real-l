@@ -1,5 +1,14 @@
 import { Database } from "@/integrations/supabase/types";
-import { ProductReview } from "@/types";
+import { supabase } from "@/integrations/supabase/client";
+import {
+  Product,
+  ProductReview,
+  ProductStatus,
+  SellingMethod,
+  PurchaseOption,
+  SharedOptionResource,
+  ProductAuditLog,
+} from "@/types";
 
 export interface CategoryNode {
   id: string;
@@ -48,7 +57,8 @@ export interface CustomLiveSection {
 
 export interface WebsiteThemeSettings {
   primaryFont: string;
-  themeMode: "light" | "dark" | "luxury";
+  themeMode: "light" | "dark" | "luxury" | "amber" | "emerald" | "royal" | string;
+  patternStyle?: "none" | "dots" | "grid" | "islamic" | "arabesque" | "waves" | "wood" | string;
   brandDark: string;
   brandPrimary: string;
   brandAccent: string;
@@ -106,18 +116,7 @@ const DEFAULT_THEME_SETTINGS: WebsiteThemeSettings = {
     "اكتشف أحدث تشكيلة من غرف المعيشة، المفروشات، والكنب العصري بأسعار ممتازة وجاذبية لا تقاوم.",
   bannerCtaText: "تسوق التشكيلة الآن",
 
-  customLiveSections: [
-    {
-      id: "sec-default-1",
-      title: "عروض الحجز المبكر والقطع الحصرية 2026",
-      subtitle: "استمتع بخصم إضافي 15% وشحن لكل محافظات مصر عند الطلب اليوم عبر موقع بيتك.",
-      type: "banner",
-      badgeText: "عروض الموسم",
-      buttonText: "استكشف المنتجات المميزة",
-      buttonUrl: "/products",
-      bgColor: "bg-[#1C1613] text-[#F8F5EE] border-[#D2B48C]",
-    },
-  ],
+  customLiveSections: [],
 
   // Default Builder Defaults
   homepageTheme: "modern",
@@ -173,13 +172,49 @@ export interface Seller {
   logoUrl?: string;
   status: "pending" | "approved" | "rejected" | "suspended";
   registeredAt: string;
-  planId: string;
-  planExpiresAt: string;
-  warehouses: string[];
-  permissions: string[];
-  aiCredits: number;
-  sellerType?: "affiliate" | "merchant";
+  sellerType?: "affiliate" | "merchant" | "factory"; // مسوق بالعمولة | تاجر فردي | شركة/مصنع
   commissionCut?: number;
+  commercialRegistration?: string;
+  taxCard?: string;
+  isVerifiedCompany?: boolean;
+}
+
+export interface SellerRequest {
+  id: string;
+  sellerId: string;
+  sellerName: string;
+  requestType: "category" | "payment_method" | "company_verification";
+  title: string;
+  details: string;
+  targetSection?: "general" | "women";
+  status: "pending" | "approved" | "rejected";
+  createdAt: string;
+}
+
+export interface SellerCustomerOrder {
+  id: string;
+  orderNumber: string;
+  sellerId: string;
+  customerName: string;
+  phone: string;
+  backupPhone?: string;
+  governorate: string;
+  area: string;
+  address: string;
+  notes?: string;
+  paymentMethod?: string;
+  items: Array<{
+    id: string;
+    name: string;
+    price: number;
+    quantity: number;
+    image_url?: string;
+    selectedColor?: string;
+    selectedSize?: string;
+  }>;
+  total: number;
+  status: "pending" | "processing" | "shipped" | "delivered" | "cancelled";
+  createdAt: string;
 }
 
 export interface SubscriptionPlan {
@@ -337,15 +372,13 @@ const INITIAL_ROLES: DynamicRole[] = [
   {
     id: "role-super-admin",
     name: "مدير عام النظام (Super Admin)",
-    description:
-      "صلاحيات كاملة وغير محدودة لإدارة وتكوين كل جوانب المنصة والشركاء والذكاء الاصطناعي",
+    description: "صلاحيات كاملة وغير محدودة لإدارة وتكوين كل جوانب المنصة والشركاء",
     permissions: [
       "all_access",
       "manage_settings",
       "manage_sellers",
       "manage_visitors",
       "manage_plans",
-      "manage_ai",
       "manage_products",
       "manage_orders",
     ],
@@ -360,8 +393,8 @@ const INITIAL_ROLES: DynamicRole[] = [
   {
     id: "role-seller-standard",
     name: "تاجر عادي (Standard Seller)",
-    description: "صلاحيات رفع منتجات أساسية وإدارة الطلبات واستخدام أدوات AI الأساسية",
-    permissions: ["sell_products", "use_ai_studio_limited", "view_reports_basic"],
+    description: "صلاحيات رفع منتجات أساسية وإدارة الطلبات",
+    permissions: ["sell_products", "view_reports_basic"],
   },
 ];
 
@@ -372,7 +405,7 @@ const INITIAL_SELLERS: Seller[] = [
     id: "seller-habiba",
     storeName: "متجر حبيبة المميز",
     ownerName: "حبيبة علي",
-    email: "alihabiba109@gmail.com",
+    email: "demo-seller-1@beitak.eg",
     phone: "01000000000",
     status: "approved",
     registeredAt: "2026-07-19T03:33:21Z",
@@ -385,9 +418,9 @@ const INITIAL_SELLERS: Seller[] = [
   },
   {
     id: "seller-habiba-alt",
-    storeName: "متجر حبيبة المميز",
-    ownerName: "حبيبة علي",
-    email: "habibaali552005@gmail.com",
+    storeName: "متجر الفريدة للأثاث",
+    ownerName: "متجر تجريبي",
+    email: "demo-seller-2@beitak.eg",
     phone: "01000000001",
     status: "approved",
     registeredAt: "2026-07-19T03:33:21Z",
@@ -441,6 +474,28 @@ const INITIAL_COMMISSIONS: CommissionRule[] = [
 ];
 
 export class MarketplaceStore {
+  static getCurrentUserId(): string | null {
+    if (typeof window === "undefined") return null;
+    try {
+      const stored = localStorage.getItem("virtual_session");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const id = parsed?.user?.id || parsed?.user?.email;
+        if (id) return id.toLowerCase().replace(/[^a-z0-9_-]/g, "_");
+      }
+    } catch (e) {
+      console.warn("Failed to retrieve current user ID from session", e);
+    }
+    return null;
+  }
+
+  static getUserScopedKey(baseKey: string, userId?: string): string {
+    const uid = userId
+      ? userId.toLowerCase().replace(/[^a-z0-9_-]/g, "_")
+      : this.getCurrentUserId();
+    return uid ? `${baseKey}_usr_${uid}` : `${baseKey}_guest`;
+  }
+
   // Visitors
   static getVisitors(): Visitor[] {
     return getStored<Visitor[]>("visitors", INITIAL_VISITORS);
@@ -597,6 +652,46 @@ export class MarketplaceStore {
     return productsList.filter((p) => p && !deletedSet.has(p.id));
   }
 
+  static async getProducts(): Promise<Product[]> {
+    let rawProducts: Product[] = [];
+    try {
+      const { data } = await supabase
+        .from("products")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (data) rawProducts = data as unknown as Product[];
+    } catch {
+      // fallback
+    }
+
+    const customMap = this.getCustomProducts();
+    const existingIds = new Set(rawProducts.map((p) => p.id));
+
+    // Merge custom product edits
+    const updatedList = rawProducts.map((p) => {
+      if (customMap[p.id]) {
+        return { ...p, ...customMap[p.id] };
+      }
+      return p;
+    });
+
+    // Add locally created custom products if not in Supabase list
+    Object.keys(customMap).forEach((id) => {
+      if (!existingIds.has(id)) {
+        updatedList.unshift({
+          id,
+          name: "منتج جديد",
+          price: 100,
+          in_stock: true,
+          created_at: new Date().toISOString(),
+          ...customMap[id],
+        } as Product);
+      }
+    });
+
+    return this.filterDeletedProducts(updatedList);
+  }
+
   static getCustomProducts(): Record<string, Partial<Product>> {
     const custom = getStored<Record<string, Partial<Product>>>("custom_products", {});
     const deletedSet = new Set(this.getDeletedProductIds());
@@ -628,7 +723,7 @@ export class MarketplaceStore {
   static getSimulationRole(): "super_admin" | "seller" | "customer" | "visitor" {
     return getStored<"super_admin" | "seller" | "customer" | "visitor">(
       "simulation_role",
-      "super_admin",
+      "visitor",
     );
   }
   static setSimulationRole(role: "super_admin" | "seller" | "customer" | "visitor") {
@@ -680,10 +775,55 @@ export class MarketplaceStore {
   static getDefaultThemeSettings(): WebsiteThemeSettings {
     return DEFAULT_THEME_SETTINGS;
   }
+  static getDeletedCustomSectionIds(): string[] {
+    return getStored<string[]>("deleted_custom_section_ids", ["sec-default-1"]);
+  }
+  static deleteCustomLiveSection(sectionId: string) {
+    const rawId = sectionId.replace(/^live_/, "");
+    const deleted = MarketplaceStore.getDeletedCustomSectionIds();
+    if (!deleted.includes(rawId)) {
+      deleted.push(rawId);
+      setStored("deleted_custom_section_ids", deleted);
+    }
+
+    const settings = MarketplaceStore.getSiteThemeSettings();
+    if (settings.customLiveSections) {
+      settings.customLiveSections = settings.customLiveSections.filter(
+        (s) => s.id !== rawId && s.id !== sectionId,
+      );
+      MarketplaceStore.saveSiteThemeSettings(settings);
+    }
+
+    const edits = MarketplaceStore.getLiveCmsEdits();
+    edits[rawId] = "__DELETED__";
+    edits[sectionId] = "__DELETED__";
+    edits[`live_${rawId}`] = "__DELETED__";
+    MarketplaceStore.saveLiveCmsEdits(edits);
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("beitak-theme-updated"));
+      window.dispatchEvent(new Event("beitak-live-cms-updated"));
+    }
+  }
   static getSiteThemeSettings(): WebsiteThemeSettings {
     const settings = getStored<WebsiteThemeSettings>("site_theme_settings", DEFAULT_THEME_SETTINGS);
+    const deletedIds = MarketplaceStore?.getDeletedCustomSectionIds
+      ? MarketplaceStore.getDeletedCustomSectionIds()
+      : ["sec-default-1"];
+    const edits = MarketplaceStore?.getLiveCmsEdits ? MarketplaceStore.getLiveCmsEdits() : {};
+
     if (!settings.customLiveSections) {
-      settings.customLiveSections = DEFAULT_THEME_SETTINGS.customLiveSections;
+      settings.customLiveSections = DEFAULT_THEME_SETTINGS.customLiveSections || [];
+    }
+
+    if (settings.customLiveSections) {
+      settings.customLiveSections = settings.customLiveSections.filter(
+        (s) =>
+          !deletedIds.includes(s.id) &&
+          !deletedIds.includes(`sec-${s.id}`) &&
+          edits[s.id] !== "__DELETED__" &&
+          edits[`live_${s.id}`] !== "__DELETED__",
+      );
     }
     return settings;
   }
@@ -750,50 +890,79 @@ export class MarketplaceStore {
     return getStored("category_requests", []);
   }
 
-  static addCategoryRequest(req: {
+  // General Seller Requests System (Category, Payment Method, Company Verification)
+  static getSellerRequests(): SellerRequest[] {
+    return getStored<SellerRequest[]>("seller_general_requests", []);
+  }
+
+  static addSellerRequest(req: {
     sellerId: string;
     sellerName: string;
-    categoryName: string;
-    description: string;
-    targetSection: "general" | "women";
-  }) {
-    const list = MarketplaceStore.getCategoryRequests();
-    const newReq = {
-      id: `cat-req-${Date.now()}`,
+    requestType: "category" | "payment_method" | "company_verification";
+    title: string;
+    details: string;
+    targetSection?: "general" | "women";
+  }): SellerRequest {
+    const list = MarketplaceStore.getSellerRequests();
+    const newReq: SellerRequest = {
+      id: `s-req-${Date.now()}`,
       sellerId: req.sellerId,
       sellerName: req.sellerName,
-      categoryName: req.categoryName,
-      description: req.description,
-      targetSection: req.targetSection,
-      status: "pending" as const,
+      requestType: req.requestType,
+      title: req.title,
+      details: req.details,
+      targetSection: req.targetSection || "general",
+      status: "pending",
       createdAt: new Date().toLocaleDateString("ar-EG"),
     };
-    setStored("category_requests", [newReq, ...list]);
+    setStored("seller_general_requests", [newReq, ...list]);
+    window.dispatchEvent(new Event("beitak-seller-requests-updated"));
     return newReq;
   }
 
-  static updateCategoryRequestStatus(id: string, status: "approved" | "rejected") {
-    const list = MarketplaceStore.getCategoryRequests();
+  static updateSellerRequestStatus(id: string, status: "approved" | "rejected") {
+    const list = MarketplaceStore.getSellerRequests();
     const updated = list.map((r) => (r.id === id ? { ...r, status } : r));
-    setStored("category_requests", updated);
+    setStored("seller_general_requests", updated);
+
+    // If request was company verification, update seller status to verified company
+    const targetReq = list.find((r) => r.id === id);
+    if (targetReq && targetReq.requestType === "company_verification" && status === "approved") {
+      const sellers = MarketplaceStore.getSellers();
+      const updatedSellers = sellers.map((s) => {
+        if (s.id === targetReq.sellerId) {
+          return {
+            ...s,
+            sellerType: "factory" as const,
+            isVerifiedCompany: true,
+          };
+        }
+        return s;
+      });
+      MarketplaceStore.saveSellers(updatedSellers);
+    }
+
+    window.dispatchEvent(new Event("beitak-seller-requests-updated"));
   }
 
   // User Delivery Governorate Filter
-  static getUserGovernorate(): string {
-    return getStored("user_delivery_governorate", "جميع المحافظات");
+  static getUserGovernorate(userId?: string): string {
+    return getStored(this.getUserScopedKey("user_delivery_governorate", userId), "جميع المحافظات");
   }
 
-  static setUserGovernorate(gov: string) {
-    setStored("user_delivery_governorate", gov);
+  static setUserGovernorate(gov: string, userId?: string) {
+    setStored(this.getUserScopedKey("user_delivery_governorate", userId), gov);
   }
 
   // User Gender Management (male / female / unknown)
-  static getUserGender(): "male" | "female" | "unknown" {
-    return getStored("user_gender", "unknown");
+  static getUserGender(userId?: string): "male" | "female" | "unknown" {
+    return getStored(this.getUserScopedKey("user_gender", userId), "unknown");
   }
 
-  static setUserGender(gender: "male" | "female") {
-    setStored("user_gender", gender);
+  static setUserGender(gender: "male" | "female", userId?: string) {
+    setStored(this.getUserScopedKey("user_gender", userId), gender);
+    window.dispatchEvent(new CustomEvent("beitak-gender-updated", { detail: { gender } }));
+    window.dispatchEvent(new Event("storage"));
   }
 
   // Women's Section Publishing Rules for Sellers
@@ -1373,7 +1542,21 @@ export class MarketplaceStore {
         sortOrder: 7,
       },
     ];
-    return getStored<CategoryNode[]>("nested_categories", fallback);
+    const stored = getStored<CategoryNode[]>("nested_categories", fallback);
+    const deletedIds = new Set(getStored<string[]>("deleted_category_ids", []));
+    const deletedNames = new Set(getStored<string[]>("deleted_category_names", []));
+
+    return stored.filter((c) => !deletedIds.has(c.id) && !deletedNames.has(c.name));
+  }
+
+  static filterDeletedCategories<T extends { id?: string; name?: string }>(categories: T[]): T[] {
+    const deletedIds = new Set(getStored<string[]>("deleted_category_ids", []));
+    const deletedNames = new Set(getStored<string[]>("deleted_category_names", []));
+    return categories.filter((c) => {
+      if (c.id && deletedIds.has(c.id)) return false;
+      if (c.name && deletedNames.has(c.name)) return false;
+      return true;
+    });
   }
 
   static saveCategories(cats: CategoryNode[]) {
@@ -1389,8 +1572,34 @@ export class MarketplaceStore {
       id: "cat-" + Date.now(),
       slug: categoryData.slug || categoryData.name.toLowerCase().replace(/\s+/g, "-"),
     };
+
+    // Remove from deleted names/ids if previously deleted
+    const deletedIds = getStored<string[]>("deleted_category_ids", []).filter(
+      (id) => id !== newCat.id,
+    );
+    const deletedNames = getStored<string[]>("deleted_category_names", []).filter(
+      (n) => n !== newCat.name,
+    );
+    setStored("deleted_category_ids", deletedIds);
+    setStored("deleted_category_names", deletedNames);
+
     cats.push(newCat);
     this.saveCategories(cats);
+
+    // Sync to Supabase categories table if connected
+    supabase
+      .from("categories")
+      .insert({
+        id: newCat.id,
+        name: newCat.name,
+        slug: newCat.slug,
+        parent_id: newCat.parentId || null,
+        icon: newCat.icon || "Folder",
+        sort_order: newCat.sortOrder || 100,
+      })
+      .then(() => {})
+      .catch(() => {});
+
     return newCat;
   }
 
@@ -1400,16 +1609,56 @@ export class MarketplaceStore {
     if (idx !== -1) {
       cats[idx] = { ...cats[idx], ...updates };
       this.saveCategories(cats);
+
+      if (updates.name || updates.parentId !== undefined) {
+        supabase
+          .from("categories")
+          .update({
+            name: updates.name,
+            parent_id: updates.parentId || null,
+            icon: updates.icon,
+          })
+          .eq("id", id)
+          .then(() => {})
+          .catch(() => {});
+      }
     }
   }
 
   static deleteCategory(id: string) {
-    let cats = this.getCategories();
-    // Reassign children of this category to its parent or null
+    const cats = this.getCategories();
     const target = cats.find((c) => c.id === id);
     const parentId = target?.parentId || null;
-    cats = cats.map((c) => (c.parentId === id ? { ...c, parentId } : c)).filter((c) => c.id !== id);
-    this.saveCategories(cats);
+
+    // Track deleted ID and Name permanently
+    const deletedIds = getStored<string[]>("deleted_category_ids", []);
+    if (!deletedIds.includes(id)) {
+      deletedIds.push(id);
+      setStored("deleted_category_ids", deletedIds);
+    }
+
+    if (target?.name) {
+      const deletedNames = getStored<string[]>("deleted_category_names", []);
+      if (!deletedNames.includes(target.name)) {
+        deletedNames.push(target.name);
+        setStored("deleted_category_names", deletedNames);
+      }
+    }
+
+    // Reassign children of this category to its parent or null
+    const filteredCats = cats
+      .map((c) => (c.parentId === id ? { ...c, parentId } : c))
+      .filter((c) => c.id !== id);
+
+    this.saveCategories(filteredCats);
+
+    // Delete from Supabase as well
+    supabase
+      .from("categories")
+      .delete()
+      .eq("id", id)
+      .then(() => {})
+      .catch(() => {});
   }
 
   static mergeCategories(sourceId: string, targetId: string) {
@@ -1439,12 +1688,12 @@ export class MarketplaceStore {
   // ==========================================
   // 2. Real Favorites System
   // ==========================================
-  static getFavorites(): string[] {
-    return getStored<string[]>("user_favorites", []);
+  static getFavorites(userId?: string): string[] {
+    return getStored<string[]>(this.getUserScopedKey("user_favorites", userId), []);
   }
 
-  static toggleFavorite(productId: string): boolean {
-    const favs = this.getFavorites();
+  static toggleFavorite(productId: string, userId?: string): boolean {
+    const favs = this.getFavorites(userId);
     const exists = favs.includes(productId);
     let updated: string[];
     if (exists) {
@@ -1452,72 +1701,28 @@ export class MarketplaceStore {
     } else {
       updated = [productId, ...favs];
     }
-    setStored("user_favorites", updated);
+    setStored(this.getUserScopedKey("user_favorites", userId), updated);
     window.dispatchEvent(new Event("beitak-favorites-updated"));
     window.dispatchEvent(new Event("storage"));
     return !exists;
   }
 
-  static isFavorite(productId: string): boolean {
-    return this.getFavorites().includes(productId);
+  static isFavorite(productId: string, userId?: string): boolean {
+    return this.getFavorites(userId).includes(productId);
   }
 
   // ==========================================
   // 3. Complete Orders System
   // ==========================================
-  static getOrders(): StoreOrder[] {
-    return getStored<StoreOrder[]>("user_orders", [
-      {
-        id: "ord-1001",
-        orderNumber: "BTK-84920",
-        customerName: "حبيبة علي",
-        customerPhone: "01000000000",
-        governorate: "القاهرة",
-        address: "شارع التحرير، الدقي، شقة 4",
-        items: [
-          {
-            id: "item-1",
-            productId: "prod-sofa-gold",
-            name: "طقم صالون مذهب فاخر خشب زان",
-            price: 18500,
-            quantity: 1,
-            color: "ذهبي",
-            image_url: "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=500&fit=crop",
-            sellerId: "seller-habiba",
-            sellerName: "متجر حبيبة المميز",
-          },
-        ],
-        totalAmount: 18500,
-        shippingFee: 150,
-        paymentMethod: "cod",
-        status: "shipped",
-        trackingNumber: "TRK-98234-EG",
-        statusHistory: [
-          {
-            status: "pending",
-            note: "تم استلام الطلب وبانتظار التأكيد",
-            timestamp: "2026-07-25 10:30 AM",
-          },
-          {
-            status: "processing",
-            note: "جاري تجهيز وتغليف المنتج من مستودع القاهرة",
-            timestamp: "2026-07-25 02:15 PM",
-          },
-          {
-            status: "shipped",
-            note: "تم تسليم الشحنة لشركة التوصيل لمحافظة القاهرة",
-            timestamp: "2026-07-26 09:00 AM",
-          },
-        ],
-        createdAt: "2026-07-25T10:30:00Z",
-      },
-    ]);
+  static getOrders(userId?: string): StoreOrder[] {
+    return getStored<StoreOrder[]>(this.getUserScopedKey("user_orders", userId), []);
   }
 
   static addOrder(
     order: Omit<StoreOrder, "id" | "orderNumber" | "createdAt" | "statusHistory">,
+    userId?: string,
   ): StoreOrder {
-    const orders = this.getOrders();
+    const orders = this.getOrders(userId);
     const newOrd: StoreOrder = {
       ...order,
       id: "ord-" + Date.now(),
@@ -1532,23 +1737,31 @@ export class MarketplaceStore {
       ],
     };
     const updated = [newOrd, ...orders];
-    setStored("user_orders", updated);
+    setStored(this.getUserScopedKey("user_orders", userId), updated);
 
     // Auto-create notification for order
-    this.addNotification({
-      title: "تم تأكيد طلبك بنجاح 🎉",
-      message: `طلبك رقم ${newOrd.orderNumber} بقيمة ${newOrd.totalAmount.toLocaleString()} ج.م قيد المعالجة الآن.`,
-      type: "order",
-      link: "/profile?tab=orders",
-    });
+    this.addNotification(
+      {
+        title: "تم تأكيد طلبك بنجاح 🎉",
+        message: `طلبك رقم ${newOrd.orderNumber} بقيمة ${newOrd.totalAmount.toLocaleString()} ج.م قيد المعالجة الآن.`,
+        type: "order",
+        link: "/profile?tab=orders",
+      },
+      userId,
+    );
 
     window.dispatchEvent(new Event("beitak-orders-updated"));
     window.dispatchEvent(new Event("storage"));
     return newOrd;
   }
 
-  static updateOrderStatus(orderId: string, status: StoreOrder["status"], note?: string) {
-    const orders = this.getOrders();
+  static updateOrderStatus(
+    orderId: string,
+    status: StoreOrder["status"],
+    note?: string,
+    userId?: string,
+  ) {
+    const orders = this.getOrders(userId);
     const idx = orders.findIndex((o) => o.id === orderId);
     if (idx !== -1) {
       orders[idx].status = status;
@@ -1557,18 +1770,51 @@ export class MarketplaceStore {
         note: note || `تم تحديث حالة الطلب إلى: ${status}`,
         timestamp: new Date().toLocaleString("ar-EG"),
       });
-      setStored("user_orders", orders);
+      setStored(this.getUserScopedKey("user_orders", userId), orders);
 
-      this.addNotification({
-        title: `تحديث حالة الطلب ${orders[idx].orderNumber}`,
-        message: note || `تغيرت حالة طلبك إلى ${status}`,
-        type: "shipping",
-        link: "/profile?tab=orders",
-      });
+      this.addNotification(
+        {
+          title: `تحديث حالة الطلب ${orders[idx].orderNumber}`,
+          message: note || `تغيرت حالة طلبك إلى ${status}`,
+          type: "shipping",
+          link: "/profile?tab=orders",
+        },
+        userId,
+      );
 
       window.dispatchEvent(new Event("beitak-orders-updated"));
       window.dispatchEvent(new Event("storage"));
     }
+  }
+
+  // Seller Customer Orders Management
+  static getSellerCustomerOrders(sellerId?: string): SellerCustomerOrder[] {
+    const list = getStored<SellerCustomerOrder[]>("seller_customer_orders", []);
+    if (sellerId) {
+      return list.filter((o) => o.sellerId === sellerId);
+    }
+    return list;
+  }
+
+  static addSellerCustomerOrder(order: Omit<SellerCustomerOrder, "id">): SellerCustomerOrder {
+    const list = getStored<SellerCustomerOrder[]>("seller_customer_orders", []);
+    const newOrder: SellerCustomerOrder = {
+      ...order,
+      id: "sord-" + Date.now() + "-" + Math.random().toString(36).substring(2, 6),
+    };
+    const updated = [newOrder, ...list];
+    setStored("seller_customer_orders", updated);
+    window.dispatchEvent(new Event("beitak-seller-orders-updated"));
+    window.dispatchEvent(new Event("storage"));
+    return newOrder;
+  }
+
+  static updateSellerOrderStatus(orderId: string, status: SellerCustomerOrder["status"]) {
+    const list = getStored<SellerCustomerOrder[]>("seller_customer_orders", []);
+    const updated = list.map((o) => (o.id === orderId ? { ...o, status } : o));
+    setStored("seller_customer_orders", updated);
+    window.dispatchEvent(new Event("beitak-seller-orders-updated"));
+    window.dispatchEvent(new Event("storage"));
   }
 
   // ==========================================
@@ -1735,52 +1981,53 @@ export class MarketplaceStore {
   // ==========================================
   // 6. Search History Page & System
   // ==========================================
-  static getSearchHistory(): Array<{ id: string; query: string; timestamp: string }> {
-    return getStored("user_search_history", [
-      { id: "s-1", query: "صالون مذهب", timestamp: "منذ يوم" },
-      { id: "s-2", query: "غرف نوم زان", timestamp: "منذ يومين" },
-      { id: "s-3", query: "ثلاجة توشيبا", timestamp: "منذ 3 أيام" },
-    ]);
+  static getSearchHistory(
+    userId?: string,
+  ): Array<{ id: string; query: string; timestamp: string }> {
+    return getStored(this.getUserScopedKey("user_search_history", userId), []);
   }
 
-  static addSearchQuery(query: string) {
+  static addSearchQuery(query: string, userId?: string) {
     if (!query || !query.trim()) return;
     const clean = query.trim();
-    let history = this.getSearchHistory();
+    let history = this.getSearchHistory(userId);
     history = history.filter((h) => h.query.toLowerCase() !== clean.toLowerCase());
     const newEntry = {
       id: "search-" + Date.now(),
       query: clean,
       timestamp: new Date().toLocaleDateString("ar-EG"),
     };
-    setStored("user_search_history", [newEntry, ...history].slice(0, 30));
+    setStored(
+      this.getUserScopedKey("user_search_history", userId),
+      [newEntry, ...history].slice(0, 30),
+    );
     window.dispatchEvent(new Event("beitak-search-history-updated"));
   }
 
-  static deleteSearchQuery(id: string) {
-    const history = this.getSearchHistory().filter((h) => h.id !== id);
-    setStored("user_search_history", history);
+  static deleteSearchQuery(id: string, userId?: string) {
+    const history = this.getSearchHistory(userId).filter((h) => h.id !== id);
+    setStored(this.getUserScopedKey("user_search_history", userId), history);
     window.dispatchEvent(new Event("beitak-search-history-updated"));
   }
 
-  static clearSearchHistory() {
-    setStored("user_search_history", []);
+  static clearSearchHistory(userId?: string) {
+    setStored(this.getUserScopedKey("user_search_history", userId), []);
     window.dispatchEvent(new Event("beitak-search-history-updated"));
   }
 
   // ==========================================
   // 7. Recently Viewed Products
   // ==========================================
-  static getRecentlyViewed(): string[] {
-    return getStored<string[]>("recently_viewed_products", []);
+  static getRecentlyViewed(userId?: string): string[] {
+    return getStored<string[]>(this.getUserScopedKey("recently_viewed_products", userId), []);
   }
 
-  static addRecentlyViewed(productId: string) {
+  static addRecentlyViewed(productId: string, userId?: string) {
     if (!productId) return;
-    let list = this.getRecentlyViewed();
+    let list = this.getRecentlyViewed(userId);
     list = list.filter((id) => id !== productId);
     list = [productId, ...list].slice(0, 20); // Keep last 20
-    setStored("recently_viewed_products", list);
+    setStored(this.getUserScopedKey("recently_viewed_products", userId), list);
     window.dispatchEvent(new Event("beitak-recently-viewed-updated"));
   }
 
@@ -1982,5 +2229,236 @@ export class MarketplaceStore {
     setStored("homepage_sections_cms_config", sections);
     window.dispatchEvent(new Event("beitak-homepage-cms-updated"));
     window.dispatchEvent(new Event("storage"));
+  }
+
+  // ==========================================
+  // 15. Shared Purchase Options Engine & Audit Logs
+  // ==========================================
+  static getSharedOptionResources(): SharedOptionResource[] {
+    return getStored<SharedOptionResource[]>("shared_option_resources", [
+      {
+        id: "opt-1",
+        type: "color",
+        typeLabel: "اللون",
+        value: "أسود بني فاخر",
+        status: "active",
+        createdAt: "2026-07-01",
+      },
+      {
+        id: "opt-2",
+        type: "color",
+        typeLabel: "اللون",
+        value: "أبيض عاجي",
+        status: "active",
+        createdAt: "2026-07-01",
+      },
+      {
+        id: "opt-3",
+        type: "color",
+        typeLabel: "اللون",
+        value: "رمادي مودرن",
+        status: "active",
+        createdAt: "2026-07-01",
+      },
+      {
+        id: "opt-4",
+        type: "size",
+        typeLabel: "المقاس",
+        value: "صغير (S)",
+        status: "active",
+        createdAt: "2026-07-01",
+      },
+      {
+        id: "opt-5",
+        type: "size",
+        typeLabel: "المقاس",
+        value: "متوسط (M)",
+        status: "active",
+        createdAt: "2026-07-01",
+      },
+      {
+        id: "opt-6",
+        type: "size",
+        typeLabel: "المقاس",
+        value: "كبير (L)",
+        status: "active",
+        createdAt: "2026-07-01",
+      },
+      {
+        id: "opt-7",
+        type: "size",
+        typeLabel: "المقاس",
+        value: "جامبو (XL)",
+        status: "active",
+        createdAt: "2026-07-01",
+      },
+      {
+        id: "opt-8",
+        type: "volume",
+        typeLabel: "الحجم/السعة",
+        value: "500 مل",
+        status: "active",
+        createdAt: "2026-07-01",
+      },
+      {
+        id: "opt-9",
+        type: "volume",
+        typeLabel: "الحجم/السعة",
+        value: "1 لتر",
+        status: "active",
+        createdAt: "2026-07-01",
+      },
+      {
+        id: "opt-10",
+        type: "material",
+        typeLabel: "المادة/الخامة",
+        value: "خشب زان طبيعي",
+        status: "active",
+        createdAt: "2026-07-01",
+      },
+      {
+        id: "opt-11",
+        type: "material",
+        typeLabel: "المادة/الخامة",
+        value: "جلد طبيعي 100%",
+        status: "active",
+        createdAt: "2026-07-01",
+      },
+      {
+        id: "opt-12",
+        type: "finish",
+        typeLabel: "التشطيب",
+        value: "دهان أستر مذهب",
+        status: "active",
+        createdAt: "2026-07-01",
+      },
+      {
+        id: "opt-13",
+        type: "condition",
+        typeLabel: "الحالة",
+        value: "جديد بالكرتونة",
+        status: "active",
+        createdAt: "2026-07-01",
+      },
+    ]);
+  }
+
+  static addSharedOptionResource(
+    opt: Omit<SharedOptionResource, "id" | "createdAt" | "status">,
+  ): SharedOptionResource {
+    const list = this.getSharedOptionResources();
+    const cleanValue = opt.value.trim();
+    const existing = list.find(
+      (o) => o.type === opt.type && o.value.toLowerCase() === cleanValue.toLowerCase(),
+    );
+    if (existing) return existing;
+
+    const newOpt: SharedOptionResource = {
+      ...opt,
+      id: "opt-" + Date.now(),
+      value: cleanValue,
+      status: "active",
+      createdAt: new Date().toLocaleDateString("ar-EG"),
+    };
+    setStored("shared_option_resources", [newOpt, ...list]);
+    window.dispatchEvent(new Event("beitak-shared-options-updated"));
+    window.dispatchEvent(new Event("storage"));
+    return newOpt;
+  }
+
+  static updateSharedOptionResource(id: string, updates: Partial<SharedOptionResource>) {
+    const list = this.getSharedOptionResources();
+    const updated = list.map((o) => (o.id === id ? { ...o, ...updates } : o));
+    setStored("shared_option_resources", updated);
+    window.dispatchEvent(new Event("beitak-shared-options-updated"));
+    window.dispatchEvent(new Event("storage"));
+  }
+
+  static deleteSharedOptionResource(id: string) {
+    const list = this.getSharedOptionResources().filter((o) => o.id !== id);
+    setStored("shared_option_resources", list);
+    window.dispatchEvent(new Event("beitak-shared-options-updated"));
+    window.dispatchEvent(new Event("storage"));
+  }
+
+  // Audit Logs
+  static getAuditLogs(productId?: string): ProductAuditLog[] {
+    const all = getStored<ProductAuditLog[]>("product_audit_logs", [
+      {
+        id: "log-1",
+        productId: "prod-101",
+        productName: "طقم صالون مذهب فاخر",
+        userId: "seller-habiba",
+        userName: "متجر حبيبة",
+        userRole: "seller",
+        action: "create",
+        timestamp: new Date().toLocaleString("ar-EG"),
+        details: "تم إنشاء المنتج في المسودات أول مرة",
+      },
+      {
+        id: "log-2",
+        productId: "prod-101",
+        productName: "طقم صالون مذهب فاخر",
+        userId: "seller-habiba",
+        userName: "متجر حبيبة",
+        userRole: "seller",
+        action: "publish",
+        timestamp: new Date().toLocaleString("ar-EG"),
+        details: "تم إكمال جميع البيانات ونشر المنتج بالماركت بليس",
+      },
+    ]);
+    if (productId) {
+      return all.filter((l) => l.productId === productId);
+    }
+    return all;
+  }
+
+  static addAuditLog(log: Omit<ProductAuditLog, "id" | "timestamp">): ProductAuditLog {
+    const list = this.getAuditLogs();
+    const newLog: ProductAuditLog = {
+      ...log,
+      id: "log-" + Date.now(),
+      timestamp: new Date().toLocaleString("ar-EG"),
+    };
+    setStored("product_audit_logs", [newLog, ...list]);
+    window.dispatchEvent(new Event("beitak-audit-logs-updated"));
+    return newLog;
+  }
+
+  // Pre-publishing Validation
+  static validateProductForPublish(p: Partial<Product>): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+    if (!p.main_category && !p.category) {
+      errors.push("يرجى اختيار القسم الرئيسي للمنتج.");
+    }
+    if (!p.sub_category) {
+      errors.push("يرجى اختيار القسم الفرعي للمنتج.");
+    }
+    if (!p.name || !p.name.trim()) {
+      errors.push("اسم المنتج مطلوب ولا يمكن أن يكون فارغاً.");
+    }
+    if (!p.description || !p.description.trim()) {
+      errors.push("وصف المنتج مطلوب لشرح تفاصيل السلعة للعملاء.");
+    }
+    if (p.price === undefined || p.price === null || p.price <= 0) {
+      errors.push("يرجى إدخال سعر صحيح أكبر من الصفر.");
+    }
+    const hasImage = !!(p.image_url || (p.images && p.images.length > 0));
+    if (!hasImage) {
+      errors.push("يجب رفع صورة رئيسية واحدة على الأقل من جهازك.");
+    }
+    const hasOptions =
+      (p.purchase_options && p.purchase_options.length > 0) ||
+      (p.colors && p.colors.length > 0) ||
+      (p.sizes && p.sizes.length > 0);
+    if (!hasOptions) {
+      errors.push(
+        "خيارات الشراء إلزامية! يجب تحديد خيار واحد على الأقل (مثل اللون، المقاس، الخوبة، الخ).",
+      );
+    }
+    return {
+      valid: errors.length === 0,
+      errors,
+    };
   }
 }

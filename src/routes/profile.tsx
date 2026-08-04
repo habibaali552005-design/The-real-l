@@ -5,6 +5,9 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { EGYPT_GOVERNORATES } from "@/types";
 import { MarketplaceStore } from "@/lib/marketplaceStore";
+import { MultiVendorStorage } from "@/lib/multiVendorStorage";
+import { requestCurrentLocation } from "@/lib/location";
+import { saveSyncedAddress, getSyncedAddress } from "@/lib/addressSync";
 import {
   User,
   Phone,
@@ -16,6 +19,10 @@ import {
   Lock,
   ArrowRight,
   BookOpen,
+  Navigation,
+  Loader2,
+  Building,
+  FileText,
 } from "lucide-react";
 
 export const Route = createFileRoute("/profile")({
@@ -30,6 +37,12 @@ export function UserProfilePage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [user, setUser] = useState<any>(null);
 
+  // Egypt cascading address directory (Identical to Checkout form)
+  const egyptData = MultiVendorStorage.getEgyptAddressData();
+  const [selectedGovId, setSelectedGovId] = useState(egyptData[0].id);
+  const [selectedCityId, setSelectedCityId] = useState(egyptData[0].cities[0].id);
+  const [selectedDistrict, setSelectedDistrict] = useState(egyptData[0].cities[0].districts[0]);
+
   // Profile Form State
   const [fullName, setFullName] = useState("");
   const [userGender, setUserGenderState] = useState<"male" | "female">(
@@ -38,14 +51,25 @@ export function UserProfilePage() {
   const [showGenderWhyModal, setShowGenderWhyModal] = useState(false);
   const [phonePrimary, setPhonePrimary] = useState("");
   const [phoneSecondary, setPhoneSecondary] = useState("");
-  const [governorate, setGovernorate] = useState(EGYPT_GOVERNORATES[1]); // القاهرة
-  const [city, setCity] = useState("");
+  const [governorate, setGovernorate] = useState(egyptData[0].nameAr);
+  const [city, setCity] = useState(egyptData[0].cities[0].nameAr);
   const [detailedAddress, setDetailedAddress] = useState("");
+  const [buildingFloor, setBuildingFloor] = useState("");
+  const [landmark, setLandmark] = useState("");
+  const [notes, setNotes] = useState("");
   const [mapLocation, setMapLocation] = useState("");
+  const [detectingLocation, setDetectingLocation] = useState(false);
 
   // Role status
   const [isSeller, setIsSeller] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
+
+  // Seller Registration Type State
+  const [sellerTypeChoice, setSellerTypeChoice] = useState<"merchant" | "affiliate" | "factory">(
+    "merchant",
+  );
+  const [regCommReg, setRegCommReg] = useState("");
+  const [regTaxCard, setRegTaxCard] = useState("");
 
   // Seller Terms Modal State
   const [terms, setTerms] = useState(() => MarketplaceStore.getSellerTerms());
@@ -60,19 +84,45 @@ export function UserProfilePage() {
       }
       setUser(u);
 
-      // Load user metadata / profile
+      // Load synced address or user metadata / profile
+      const synced = getSyncedAddress(u.id);
       const meta = u.user_metadata || {};
+
       setFullName(meta.full_name || meta.name || u.email?.split("@")[0] || "");
       if (meta.gender === "male" || meta.gender === "female") {
         setUserGenderState(meta.gender);
         MarketplaceStore.setUserGender(meta.gender);
       }
-      setPhonePrimary(meta.phone_primary || meta.phone || "");
-      setPhoneSecondary(meta.phone_secondary || "");
-      setGovernorate(meta.governorate || EGYPT_GOVERNORATES[1]);
-      setCity(meta.city || "");
-      setDetailedAddress(meta.detailed_address || meta.address || "");
-      setMapLocation(meta.map_location || "");
+      setPhonePrimary(meta.phone_primary || meta.phone || synced?.phonePrimary || "");
+      setPhoneSecondary(meta.phone_secondary || synced?.phoneSecondary || "");
+
+      // Match governorate and city in cascading data
+      const savedGovName = synced?.governorate || meta.governorate || egyptData[0].nameAr;
+      const matchedGov =
+        egyptData.find((g) => g.nameAr.includes(savedGovName) || savedGovName.includes(g.nameAr)) ||
+        egyptData[0];
+      setSelectedGovId(matchedGov.id);
+      setGovernorate(matchedGov.nameAr);
+
+      const savedCityName = synced?.city || meta.city || matchedGov.cities[0].nameAr;
+      const matchedCity =
+        matchedGov.cities.find(
+          (c) => c.nameAr.includes(savedCityName) || savedCityName.includes(c.nameAr),
+        ) || matchedGov.cities[0];
+      setSelectedCityId(matchedCity.id);
+      setCity(matchedCity.nameAr);
+
+      if (synced?.district || meta.district) {
+        setSelectedDistrict(synced?.district || meta.district);
+      } else if (matchedCity.districts[0]) {
+        setSelectedDistrict(matchedCity.districts[0]);
+      }
+
+      setDetailedAddress(synced?.detailedAddress || meta.detailed_address || meta.address || "");
+      setBuildingFloor(synced?.buildingFloor || meta.building_floor || "");
+      setLandmark(synced?.landmark || meta.landmark || "");
+      setNotes(meta.notes || "");
+      setMapLocation(synced?.mapLocation || meta.map_location || "");
 
       // Check if user is a seller
       const sellers = MarketplaceStore.getSellers();
@@ -83,7 +133,73 @@ export function UserProfilePage() {
 
       setLoading(false);
     });
-  }, [navigate]);
+  }, [navigate, egyptData]);
+
+  // Cascading Address Handlers
+  const handleGovChange = (govId: string) => {
+    setSelectedGovId(govId);
+    const gov = egyptData.find((g) => g.id === govId);
+    if (gov) {
+      setGovernorate(gov.nameAr);
+      const firstCity = gov.cities[0];
+      if (firstCity) {
+        setSelectedCityId(firstCity.id);
+        setCity(firstCity.nameAr);
+        if (firstCity.districts[0]) {
+          setSelectedDistrict(firstCity.districts[0]);
+        }
+      }
+    }
+  };
+
+  const handleCityChange = (cityId: string) => {
+    setSelectedCityId(cityId);
+    const currentGov = egyptData.find((g) => g.id === selectedGovId);
+    const matchedCity = currentGov?.cities.find((c) => c.id === cityId);
+    if (matchedCity) {
+      setCity(matchedCity.nameAr);
+      if (matchedCity.districts[0]) {
+        setSelectedDistrict(matchedCity.districts[0]);
+      }
+    }
+  };
+
+  const handleUseCurrentLocation = async () => {
+    setDetectingLocation(true);
+    try {
+      const res = await requestCurrentLocation();
+      if (res.governorate) {
+        const matchedGov = egyptData.find(
+          (g) => g.nameAr.includes(res.governorate!) || res.governorate!.includes(g.nameAr),
+        );
+        if (matchedGov) {
+          setSelectedGovId(matchedGov.id);
+          setGovernorate(matchedGov.nameAr);
+          if (res.city) {
+            const matchedCity = matchedGov.cities.find(
+              (c) => c.nameAr.includes(res.city!) || res.city!.includes(c.nameAr),
+            );
+            if (matchedCity) {
+              setSelectedCityId(matchedCity.id);
+              setCity(matchedCity.nameAr);
+            }
+          }
+        }
+      }
+      if (res.city) setSelectedDistrict(res.city);
+      if (res.formattedAddress) {
+        setDetailedAddress((prev) =>
+          prev ? `${prev} - ${res.formattedAddress}` : res.formattedAddress,
+        );
+      }
+      setMapLocation(`https://maps.google.com/?q=${res.lat},${res.lng}`);
+      toast.success("تم تحديد موقعك الجغرافي وتعبئة كافة بيانات الشحن تلقائياً!");
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setDetectingLocation(false);
+    }
+  };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,6 +207,23 @@ export function UserProfilePage() {
     setSaving(true);
 
     try {
+      // 1. Sync address to shared addressSync engine for Checkout auto-population
+      await saveSyncedAddress(
+        {
+          governorate,
+          city,
+          district: selectedDistrict,
+          detailedAddress,
+          buildingFloor,
+          landmark,
+          mapLocation,
+          phonePrimary,
+          phoneSecondary,
+          fullName,
+        },
+        user.id,
+      );
+
       const updatedMeta = {
         ...user.user_metadata,
         full_name: fullName,
@@ -99,23 +232,26 @@ export function UserProfilePage() {
         phone_secondary: phoneSecondary,
         governorate,
         city,
+        district: selectedDistrict,
         detailed_address: detailedAddress,
+        address: detailedAddress,
+        building_floor: buildingFloor,
+        landmark,
+        notes,
         map_location: mapLocation,
       };
 
-      const { error } = await supabase.auth.updateUser({
-        data: updatedMeta,
-      });
+      try {
+        await supabase.auth.updateUser({ data: updatedMeta });
+      } catch (e) {
+        console.warn("Notice updating Supabase user metadata:", e);
+      }
 
-      if (error) throw error;
-
-      // Save gender locally
+      // Save gender & governorate locally
       MarketplaceStore.setUserGender(userGender);
-
-      // Update delivery governorate filter
       MarketplaceStore.setUserGovernorate(governorate);
 
-      toast.success("تم حفظ وتحديث بيانات حسابك الشخصي بنجاح");
+      toast.success("تم حفظ وتحديث بيانات حسابك الشخصي وعنوان الشحن بنجاح");
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       toast.error("حدث خطأ أثناء حفظ البيانات: " + errorMsg);
@@ -141,47 +277,65 @@ export function UserProfilePage() {
       return;
     }
 
-    try {
-      // 1. Update user metadata role to seller
-      await supabase.auth.updateUser({
-        data: {
-          ...user.user_metadata,
-          role: "seller",
-        },
-      });
-
-      // 2. Add to MarketplaceStore sellers list
-      const existingSellers = MarketplaceStore.getSellers();
-      const newSellerId = `seller-${Date.now()}`;
-      const newSeller = {
-        id: newSellerId,
-        storeName: fullName ? `متجر ${fullName}` : "متجري المستقل",
-        ownerName: fullName || "بائع بيتك",
-        email: user.email || "",
-        phone: phonePrimary,
-        status: "approved" as const,
-        registeredAt: new Date().toLocaleDateString("ar-EG"),
-        planId: "plan-trial",
-        planExpiresAt: "غير محدد",
-        warehouses: ["مخزن رئيسي"],
-        permissions: ["manage_products", "manage_orders"],
-        aiCredits: 100,
-        sellerType: "merchant" as const,
-      };
-
-      MarketplaceStore.saveSellers([...existingSellers, newSeller]);
-      MarketplaceStore.setSimulatedSellerId(newSellerId);
-      MarketplaceStore.setSimulationRole("seller");
-
-      setIsSeller(true);
-      setShowTermsModal(false);
-      toast.success(
-        "مبارك! تم تحويل حسابك بنجاح إلى حساب بائع معتمد. يمكنك الآن إضافة وتحديث منتجاتك",
-      );
-    } catch (e) {
-      const errorMsg = e instanceof Error ? e.message : String(e);
-      toast.error("فشل التحويل إلى حساب بائع: " + errorMsg);
+    if (sellerTypeChoice === "factory" && (!regCommReg.trim() || !regTaxCard.trim())) {
+      toast.error("يرجى إدخال رقم السجل التجاري والبطاقة الضريبية لتوثيق الشركة/المصنع.");
+      return;
     }
+
+    // 1. Update user metadata role to seller safely
+    try {
+      if (user?.user_metadata) {
+        await supabase.auth.updateUser({
+          data: {
+            ...user.user_metadata,
+            role: "seller",
+            seller_type: sellerTypeChoice,
+          },
+        });
+      }
+    } catch (err) {
+      console.warn("Notice updating user metadata for seller conversion:", err);
+    }
+
+    // 2. Add to MarketplaceStore sellers list with accurate type and commission
+    const existingSellers = MarketplaceStore.getSellers();
+    const userEmail = user?.email || "seller@beitak.app";
+    const newSellerId = `seller-${Date.now()}`;
+    const defaultCut =
+      sellerTypeChoice === "affiliate" ? 5 : sellerTypeChoice === "factory" ? 7 : 10;
+
+    const newSeller = {
+      id: newSellerId,
+      storeName: fullName ? `متجر ${fullName}` : "متجري المستقل",
+      ownerName: fullName || "بائع بيتك",
+      email: userEmail,
+      phone: phonePrimary || "01000000000",
+      status: "approved" as const,
+      registeredAt: new Date().toLocaleDateString("ar-EG"),
+      planId: "plan-trial",
+      planExpiresAt: "غير محدد",
+      warehouses: ["مخزن رئيسي"],
+      permissions: ["manage_products", "manage_orders"],
+      aiCredits: 100,
+      sellerType: sellerTypeChoice,
+      commissionCut: defaultCut,
+      commercialRegistration: regCommReg || undefined,
+      taxCard: regTaxCard || undefined,
+      isVerifiedCompany: sellerTypeChoice === "factory",
+    };
+
+    MarketplaceStore.saveSellers([...existingSellers, newSeller]);
+    MarketplaceStore.setSimulatedSellerId(newSellerId);
+    MarketplaceStore.setSimulationRole("seller");
+
+    setIsSeller(true);
+    setShowTermsModal(false);
+    toast.success("🎉 مبارك! تم إنشاء وتفعيل حساب البائع بنجاح. جاري توجيهك إلى لوحة التحكم...");
+
+    // Redirect immediately to seller dashboard
+    setTimeout(() => {
+      navigate({ to: "/admin", search: { tab: "seller_dashboard" } });
+    }, 1000);
   };
 
   if (loading) {
@@ -295,9 +449,7 @@ export function UserProfilePage() {
             {/* Gender Field */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-brand-dark block">
-                  الجنس (مطلوب للوصول لقسم النساء):
-                </label>
+                <label className="text-xs font-bold text-brand-dark block">الجنس:</label>
                 <button
                   type="button"
                   onClick={() => setShowGenderWhyModal(true)}
@@ -362,66 +514,155 @@ export function UserProfilePage() {
 
           {/* Location & Address Section */}
           <div className="border-t border-brand-dark/10 pt-6 space-y-4">
-            <h2 className="text-lg font-black text-brand-dark flex items-center gap-2">
-              <MapPin className="w-5 h-5 text-brand-primary" />
-              عنوان الشحن والموقع التفصيلي
-            </h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-black text-brand-dark flex items-center gap-2">
+                <MapPin className="w-5 h-5 text-brand-primary" />
+                عنوان الشحن والموقع التفصيلي
+              </h2>
+              <button
+                type="button"
+                onClick={handleUseCurrentLocation}
+                disabled={detectingLocation}
+                className="flex items-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                {detectingLocation ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+                    <span>جاري كشف موقعك...</span>
+                  </>
+                ) : (
+                  <>
+                    <Navigation className="w-4 h-4 text-emerald-600 fill-emerald-600/20" />
+                    <span>استخدام موقعي الحالي (GPS)</span>
+                  </>
+                )}
+              </button>
+            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
               <div className="space-y-2">
                 <label className="text-xs font-bold text-brand-dark block">المحافظة:</label>
                 <select
-                  value={governorate}
-                  onChange={(e) => setGovernorate(e.target.value)}
+                  value={selectedGovId}
+                  onChange={(e) => handleGovChange(e.target.value)}
                   className="w-full text-xs bg-white border border-brand-dark/15 rounded-2xl px-4 py-3 outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20 cursor-pointer font-bold"
                 >
-                  {EGYPT_GOVERNORATES.filter((g) => g !== "جميع المحافظات").map((g) => (
-                    <option key={g} value={g}>
-                      {g}
+                  {egyptData.map((gov) => (
+                    <option key={gov.id} value={gov.id}>
+                      {gov.nameAr} (رسوم الشحن: {gov.shippingFee} ج.م)
                     </option>
                   ))}
                 </select>
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-bold text-brand-dark block">المدينة / الحي:</label>
-                <input
-                  type="text"
-                  required
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                  placeholder="مثال: نصر سيتي، المعادي، سموحة..."
-                  className="w-full text-xs bg-white border border-brand-dark/15 rounded-2xl px-4 py-3 outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20"
-                />
+                <label className="text-xs font-bold text-brand-dark block">المدينة / المركز:</label>
+                <select
+                  value={selectedCityId}
+                  onChange={(e) => handleCityChange(e.target.value)}
+                  className="w-full text-xs bg-white border border-brand-dark/15 rounded-2xl px-4 py-3 outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20 cursor-pointer font-bold"
+                >
+                  {egyptData
+                    .find((g) => g.id === selectedGovId)
+                    ?.cities.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nameAr}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-brand-dark block">المنطقة / الحي:</label>
+                <select
+                  value={selectedDistrict}
+                  onChange={(e) => setSelectedDistrict(e.target.value)}
+                  className="w-full text-xs bg-white border border-brand-dark/15 rounded-2xl px-4 py-3 outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20 cursor-pointer font-bold"
+                >
+                  {egyptData
+                    .find((g) => g.id === selectedGovId)
+                    ?.cities.find((c) => c.id === selectedCityId)
+                    ?.districts.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                </select>
               </div>
             </div>
 
             <div className="space-y-2">
               <label className="text-xs font-bold text-brand-dark block">
-                العنوان التفصيلي (اسم الشارع، رقم العمارة، الشقة):
+                العنوان التفصيلي (اسم الشارع، رقم العمارة، رقم الشقة):
               </label>
               <textarea
                 rows={2}
                 required
                 value={detailedAddress}
                 onChange={(e) => setDetailedAddress(e.target.value)}
-                placeholder="أدخل العنوان الكامل ليتمكن مندوب الشحن من الوصول إليك بسلاسة..."
+                placeholder="أدخل اسم الشارع المباشر، رقم المنزل/العمارة، ورقم الشقة لسهولة الوصول..."
                 className="w-full text-xs bg-white border border-brand-dark/15 rounded-2xl p-4 outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20"
               />
             </div>
 
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-brand-dark block">
-                رابط أو إحداثيات الموقع على الخريطة (GPS):
-              </label>
-              <input
-                type="text"
-                value={mapLocation}
-                onChange={(e) => setMapLocation(e.target.value)}
-                placeholder="مثال: https://maps.google.com/?q=30.0444,31.2357 أو الإحداثيات المباشرة"
-                dir="ltr"
-                className="w-full text-xs bg-white border border-brand-dark/15 rounded-2xl px-4 py-3 outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-brand-dark block flex items-center gap-1.5">
+                  <Building className="w-3.5 h-3.5 text-brand-primary" />
+                  رقم الدور / الطابق والعمارة (اختياري):
+                </label>
+                <input
+                  type="text"
+                  value={buildingFloor}
+                  onChange={(e) => setBuildingFloor(e.target.value)}
+                  placeholder="مثال: الدور الثالث - شقة 12"
+                  className="w-full text-xs bg-white border border-brand-dark/15 rounded-2xl px-4 py-3 outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-brand-dark block flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-brand-primary" />
+                  أقرب علامة مميزة (اختياري):
+                </label>
+                <input
+                  type="text"
+                  value={landmark}
+                  onChange={(e) => setLandmark(e.target.value)}
+                  placeholder="مثال: بجوار مسجد التوحيد، بجانب صيدلية مصر..."
+                  className="w-full text-xs bg-white border border-brand-dark/15 rounded-2xl px-4 py-3 outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-brand-dark block flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 text-brand-primary" />
+                  ملاحظات وتوجيهات الشحن (اختياري):
+                </label>
+                <input
+                  type="text"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="مثال: الاتصال قبل التسليم بنصف ساعة..."
+                  className="w-full text-xs bg-white border border-brand-dark/15 rounded-2xl px-4 py-3 outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-brand-dark block">
+                  رابط أو إحداثيات الموقع على الخريطة (GPS):
+                </label>
+                <input
+                  type="text"
+                  value={mapLocation}
+                  onChange={(e) => setMapLocation(e.target.value)}
+                  placeholder="مثال: https://maps.google.com/?q=30.0444,31.2357"
+                  dir="ltr"
+                  className="w-full text-xs bg-white border border-brand-dark/15 rounded-2xl px-4 py-3 outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20"
+                />
+              </div>
             </div>
           </div>
 
@@ -461,6 +702,103 @@ export function UserProfilePage() {
                 >
                   ×
                 </button>
+              </div>
+
+              {/* SELLER ACCOUNT TYPE SELECTION */}
+              <div className="bg-amber-50/50 p-4 rounded-2xl border border-amber-200/80 space-y-3">
+                <h4 className="font-black text-xs text-brand-dark flex items-center gap-2">
+                  <Building className="w-4 h-4 text-amber-700" />
+                  اختر نوع حساب البائع الخاص بك:
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setSellerTypeChoice("merchant")}
+                    className={`p-3 rounded-xl border text-right transition cursor-pointer flex flex-col justify-between ${
+                      sellerTypeChoice === "merchant"
+                        ? "bg-white border-amber-600 ring-2 ring-amber-600/20 shadow-xs"
+                        : "bg-white/60 border-brand-dark/10 hover:border-brand-dark/20"
+                    }`}
+                  >
+                    <div>
+                      <div className="font-bold text-xs text-brand-dark flex items-center justify-between">
+                        <span>تاجر فردي</span>
+                        <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold">
+                          Merchant
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSellerTypeChoice("affiliate")}
+                    className={`p-3 rounded-xl border text-right transition cursor-pointer flex flex-col justify-between ${
+                      sellerTypeChoice === "affiliate"
+                        ? "bg-white border-amber-600 ring-2 ring-amber-600/20 shadow-xs"
+                        : "bg-white/60 border-brand-dark/10 hover:border-brand-dark/20"
+                    }`}
+                  >
+                    <div>
+                      <div className="font-bold text-xs text-brand-dark flex items-center justify-between">
+                        <span>مسوق بالعمولة</span>
+                        <span className="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-bold">
+                          Affiliate
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSellerTypeChoice("factory")}
+                    className={`p-3 rounded-xl border text-right transition cursor-pointer flex flex-col justify-between ${
+                      sellerTypeChoice === "factory"
+                        ? "bg-white border-amber-600 ring-2 ring-amber-600/20 shadow-xs"
+                        : "bg-white/60 border-brand-dark/10 hover:border-brand-dark/20"
+                    }`}
+                  >
+                    <div>
+                      <div className="font-bold text-xs text-brand-dark flex items-center justify-between">
+                        <span>شركة / مصنع</span>
+                        <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold">
+                          Company
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                </div>
+
+                {sellerTypeChoice === "factory" && (
+                  <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-amber-200/60 animate-fadeIn">
+                    <div>
+                      <label className="text-[11px] font-bold text-brand-dark block mb-1">
+                        السجل التجاري (مطلوب للشركات):
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={regCommReg}
+                        onChange={(e) => setRegCommReg(e.target.value)}
+                        placeholder="أدخل رقم السجل التجاري..."
+                        className="w-full text-xs bg-white border border-brand-dark/15 rounded-xl px-3 py-2 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-brand-dark block mb-1">
+                        البطاقة الضريبية (مطلوب للشركات):
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={regTaxCard}
+                        onChange={(e) => setRegTaxCard(e.target.value)}
+                        placeholder="أدخل رقم البطاقة الضريبية..."
+                        className="w-full text-xs bg-white border border-brand-dark/15 rounded-xl px-3 py-2 outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-4">
@@ -520,6 +858,37 @@ export function UserProfilePage() {
                   className="px-6 py-3.5 rounded-2xl border border-brand-dark/10 font-bold text-xs hover:bg-secondary transition cursor-pointer text-brand-dark"
                 >
                   إلغاء
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* WHY GENDER MODAL */}
+        {showGenderWhyModal && (
+          <div className="fixed inset-0 bg-brand-dark/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <div className="bg-card border border-brand-dark/15 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
+              <div className="flex items-center justify-between border-b border-brand-dark/10 pb-3">
+                <h3 className="font-extrabold text-sm text-brand-dark flex items-center gap-2">
+                  🌸 لماذا نطلب تحديد الجنس؟
+                </h3>
+                <button
+                  onClick={() => setShowGenderWhyModal(false)}
+                  className="w-8 h-8 rounded-full bg-secondary hover:bg-brand-dark/10 flex items-center justify-center text-brand-dark font-black text-sm"
+                >
+                  ✕
+                </button>
+              </div>
+              <p className="text-xs text-brand-dark leading-relaxed font-medium">
+                نطلب تحديد الجنس بحرية وتأكيده لتوفير خصوصية كاملة للنساء وتخصيص تجربة تسوق آمنة
+                ومريحة. عند تحديد الخيار كأنثى، يتم إظهار وتفعيل الوصول التلقائي إلى قسم النساء
+                ومنتجاته الخاصة في كافة أقسام المنصة.
+              </p>
+              <div className="text-left pt-2">
+                <button
+                  onClick={() => setShowGenderWhyModal(false)}
+                  className="bg-brand-primary text-white font-bold text-xs px-5 py-2 rounded-xl hover:opacity-90 transition"
+                >
+                  حسناً، فهمت
                 </button>
               </div>
             </div>

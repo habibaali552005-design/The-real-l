@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { PageShell } from "@/components/Layout";
 import { supabase } from "@/integrations/supabase/client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { formatEGP } from "@/lib/cart";
 import {
@@ -26,6 +26,10 @@ import {
   UserCheck,
   BarChart3,
   TrendingUp,
+  FolderPlus,
+  ChevronDown,
+  ChevronUp,
+  Layers,
 } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -43,21 +47,27 @@ import {
   getSyncLogs,
 } from "@/lib/facebook.functions";
 import { ensureDbAdminRole } from "@/lib/admin.functions";
+import { ProductManagementSystem } from "@/components/admin/ProductManagementSystem";
 
 import { safeRandomUUID } from "@/lib/safeId";
-import { RoleSelector } from "@/components/admin/RoleSelector";
+import {
+  checkIsSuperAdmin,
+  checkIsSeller,
+  getAuthenticatedSellerId,
+  getUserRole,
+} from "@/lib/rbac";
 import { SuperAdminDashboard } from "@/components/admin/SuperAdminDashboard";
 import { SellerDashboard } from "@/components/admin/SellerDashboard";
 import { VisitorDashboard } from "@/components/admin/VisitorDashboard";
 import { MultiImageUploader, GalleryAsset } from "@/components/admin/MultiImageUploader";
-import { MarketplaceStore } from "@/lib/marketplaceStore";
+import { MarketplaceStore, type CategoryNode } from "@/lib/marketplaceStore";
 import { InAppChatAndTeams } from "@/components/admin/InAppChatAndTeams";
 import { UniversalImportCenter } from "@/components/admin/UniversalImportCenter";
 import { SellerWalletView } from "@/components/admin/SellerWalletView";
 import { MultiVendorStorage } from "@/lib/multiVendorStorage";
 import { Globe, CreditCard, Bot, Search, ChevronLeft, ChevronRight } from "lucide-react";
 
-type Product = {
+export type Product = {
   id: string;
   name: string;
   description: string | null;
@@ -125,26 +135,12 @@ export const Route = createFileRoute("/admin")({
 function AdminPage() {
   const navigate = useNavigate();
   const [checking, setChecking] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [isRealAdmin, setIsRealAdmin] = useState(false);
-  const [isRealSeller, setIsRealSeller] = useState(false);
-  const [simulationRole, setSimulationRole] = useState<
-    "super_admin" | "seller" | "customer" | "visitor"
-  >(MarketplaceStore.getSimulationRole());
-  const [activeSellerId, setActiveSellerId] = useState(MarketplaceStore.getSimulatedSellerId());
-  const [tab, setTab] = useState<Tab>(() => {
-    const sRole = MarketplaceStore.getSimulationRole();
-    if (sRole === "super_admin") return "marketplace";
-    if (sRole === "seller") return "seller_dashboard";
-    if (sRole === "customer") return "customer_dashboard";
-    return "onboarding";
-  });
-
-  const [aiStudioProduct, setAiStudioProduct] = useState<Product | null>(null);
-  const [openBatchEditor, setOpenBatchEditor] = useState(false);
-  const [productsList, setProductsList] = useState<Product[]>([]);
-
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [isSeller, setIsSeller] = useState(false);
+  const [activeSellerId, setActiveSellerId] = useState("");
   const [userEmail, setUserEmail] = useState("");
+  const [productsList, setProductsList] = useState<Product[]>([]);
+  const [tab, setTab] = useState<Tab>("seller_dashboard");
 
   useEffect(() => {
     let mounted = true;
@@ -152,68 +148,48 @@ function AdminPage() {
       if (!mounted) return;
       const user = data.session?.user;
       if (!user) {
+        toast.error("يرجى تسجيل الدخول أولاً للوصول للوحة التحكم");
         navigate({ to: "/auth" });
         return;
       }
+
       const email = user.email || "";
       setUserEmail(email);
 
-      // 1. Check if Super Admin
-      const lowercaseEmail = email.toLowerCase();
-      const isSuperAdminEmail =
-        lowercaseEmail === "habibaali552005@gmail.com" ||
-        lowercaseEmail === "alihabiba109@gmail.com";
+      // Check user roles
+      const superAdminCheck = checkIsSuperAdmin(user);
 
-      const { data: roles } = await supabase
+      const { data: dbRolesData } = await supabase
         .from("user_roles")
         .select("role")
         .eq("user_id", user.id);
 
-      const dbAdmin = roles?.some((r) => r.role === "admin") ?? false;
-      const dbSeller = roles?.some((r) => r.role === "seller" || r.role === "vendor") ?? false;
-      const isSuper = isSuperAdminEmail || dbAdmin;
+      const dbRoles = dbRolesData?.map((r) => r.role) || [];
+      const sellerCheck = checkIsSeller(user, dbRoles);
+      const role = getUserRole(user, dbRoles);
 
-      if (isSuperAdminEmail) {
-        ensureDbAdminRole({ data: { email, userId: user.id } })
-          .then(() => {
-            console.log("Successfully ensured real admin role in Supabase database.");
-          })
-          .catch((err) => {
-            console.warn("Note: Could not automatically sync real admin role in Supabase:", err);
-          });
+      // If user is a regular Buyer (Customer), block access to admin/seller dashboard entirely!
+      if (role === "buyer") {
+        toast.error("غير مصرح لك بالوصول للوحة التحكم. حسابك الحالي حساب مشتري.");
+        navigate({ to: "/profile" });
+        return;
       }
 
-      setIsRealAdmin(isSuper);
-      setIsAdmin(isSuper);
+      setIsSuperAdmin(superAdminCheck);
+      setIsSeller(sellerCheck);
 
-      if (isSuper) {
-        setIsRealSeller(true);
-        setSimulationRole("super_admin");
+      if (superAdminCheck) {
         setActiveSellerId("seller-habiba");
-        MarketplaceStore.setSimulatedSellerId("seller-habiba");
         setTab("marketplace");
-      } else {
-        // 2. Check if a registered Seller
-        const sellers = MarketplaceStore.getSellers();
-        const matchedSeller = sellers.find((s) => s.email?.toLowerCase() === lowercaseEmail);
-        if (matchedSeller || dbSeller) {
-          setIsRealSeller(true);
-          setSimulationRole("seller");
-          const sellerId = matchedSeller?.id || "seller-habiba";
-          setActiveSellerId(sellerId);
-          MarketplaceStore.setSimulatedSellerId(sellerId);
-          setTab("seller_dashboard");
-        } else {
-          // 3. Otherwise, regular user / visitor onboarding
-          setIsRealSeller(false);
-          setSimulationRole("visitor");
-          MarketplaceStore.setSimulationRole("visitor");
-          setTab("onboarding");
-        }
+      } else if (sellerCheck) {
+        const sellerId = getAuthenticatedSellerId(user);
+        setActiveSellerId(sellerId || "seller-habiba");
+        setTab("seller_dashboard");
       }
 
       setChecking(false);
     });
+
     return () => {
       mounted = false;
     };
@@ -241,6 +217,9 @@ function AdminPage() {
           }
         });
         setProductsList(MarketplaceStore.filterDeletedProducts(raw));
+      })
+      .catch((err) => {
+        console.warn("Failed to load products in admin:", err);
       });
   };
 
@@ -255,8 +234,6 @@ function AdminPage() {
   }, []);
 
   const logout = async () => {
-    MarketplaceStore.setSimulationRole("visitor");
-    MarketplaceStore.setSimulatedSellerId("");
     await supabase.auth.signOut();
     toast.success("تم تسجيل الخروج بنجاح");
     navigate({ to: "/auth" });
@@ -265,21 +242,8 @@ function AdminPage() {
   if (checking) {
     return (
       <PageShell>
-        <div className="text-center py-20 text-muted-foreground text-sm">جاري التحميل...</div>
-      </PageShell>
-    );
-  }
-
-  if (!userEmail) {
-    return (
-      <PageShell>
-        <div className="text-center py-20 px-4">
-          <p className="text-sm text-muted-foreground mb-4">
-            برجاء تسجيل الدخول للوصول إلى لوحة الإدارة.
-          </p>
-          <button onClick={logout} className="text-brand-primary underline text-sm">
-            تسجيل خروج
-          </button>
+        <div className="text-center py-20 text-muted-foreground text-sm">
+          جاري التحقق من صلاحيات الحساب...
         </div>
       </PageShell>
     );
@@ -290,108 +254,70 @@ function AdminPage() {
     label: string;
     icon: React.ComponentType<{ className?: string }>;
   }[] => {
-    if (simulationRole === "super_admin") {
+    if (isSuperAdmin) {
       return [
         { key: "marketplace", label: "باقات الاشتراك والشركاء", icon: ShieldAlert },
-        { key: "seller_dashboard", label: "لوحة تحكم متجري (بائع مميز)", icon: BarChart3 },
+        { key: "seller_dashboard", label: "لوحة تحكم المتجر الرئيسي", icon: BarChart3 },
         { key: "products", label: "إدارة المنتجات العامة والأسعار", icon: Package },
         { key: "orders", label: "الطلبّات الواردة للعملاء", icon: ClipboardList },
         { key: "categories", label: "الأقسام والكتالوج", icon: Tags },
         { key: "in_app_chat", label: "محادثات الماركت بليس والعملاء", icon: MessageSquare },
         { key: "wallet", label: "سحوبات وعمولات المتاجر", icon: CreditCard },
         { key: "messages", label: "رسائل تواصل الزوار", icon: MessageSquare },
-        { key: "settings", label: "إعدادات عامة", icon: SettingsIcon },
+        { key: "settings", label: "إعدادات المنصة", icon: SettingsIcon },
       ];
-    } else if (simulationRole === "seller") {
+    } else if (isSeller) {
       return [
         { key: "seller_dashboard", label: "لوحة تحكم المتجر", icon: BarChart3 },
         { key: "products", label: "منتجات متجرك", icon: Package },
         { key: "orders", label: "طلبات زبائنك", icon: ClipboardList },
+        { key: "categories", label: "أقسام متجرك", icon: Tags },
         { key: "in_app_chat", label: "شات العملاء وتنسيق الفريق", icon: MessageSquare },
         { key: "wallet", label: "محفظة متجرك المالي", icon: CreditCard },
       ];
-    } else if (simulationRole === "customer") {
-      return [{ key: "customer_dashboard", label: "بوابة الطلبات والهدايا", icon: UserCheck }];
-    } else {
-      return [{ key: "onboarding", label: "انضم كبائع للمنصة", icon: Building }];
     }
+    return [];
   };
 
   const tabs = getTabsForRole();
 
-  const handleSaveAIImage = async (newUrl: string) => {
-    if (!aiStudioProduct) return;
-    const { error } = await supabase
-      .from("products")
-      .update({ image_url: newUrl })
-      .eq("id", aiStudioProduct.id);
-
-    if (error) {
-      toast.error("فشل حفظ الصورة بالخادم الرئيسي: " + error.message);
-    } else {
-      toast.success("تم تحديث صورة المنتج بالذكاء الاصطناعي بنجاح!");
-      setAiStudioProduct(null);
-    }
-  };
-
-  const handleSaveBatchImages = async (updates: Array<{ id: string; image_url: string }>) => {
-    for (const item of updates) {
-      await supabase.from("products").update({ image_url: item.image_url }).eq("id", item.id);
-    }
-    toast.success("تم تطبيق وحفظ كافة التعديلات الجماعية بنجاح!");
-  };
-
   return (
     <PageShell>
-      <div className="px-4 pt-4">
-        <RoleSelector
-          currentRole={simulationRole}
-          isRealAdmin={isRealAdmin}
-          isRealSeller={isRealSeller}
-          onChangeRole={(role) => {
-            setSimulationRole(role);
-            if (role === "super_admin") setTab("marketplace");
-            else if (role === "seller") setTab("seller_dashboard");
-            else if (role === "customer") setTab("customer_dashboard");
-            else setTab("onboarding");
-          }}
-          onRefreshData={() => {
-            setActiveSellerId(MarketplaceStore.getSimulatedSellerId());
-          }}
-        />
-      </div>
-
-      <div className="px-4 pt-4 flex justify-between items-center mb-4">
-        <div className="space-y-0.5">
-          <h1 className="text-2xl font-bold">لوحة التحكم</h1>
+      <div className="px-4 pt-6 flex justify-between items-center mb-6 border-b border-brand-dark/10 pb-4">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-bold text-brand-dark">
+            {isSuperAdmin
+              ? "لوحة الإدارة الرئيسية (Super Admin)"
+              : "لوحة تحكم المتجر (Seller Dashboard)"}
+          </h1>
           <p className="text-xs text-muted-foreground font-semibold">
-            {simulationRole === "super_admin" && "المدير العام للماركت بليس"}
-            {simulationRole === "seller" && "بوابة شركاء النجاح والتجار"}
-            {simulationRole === "customer" && "حساب المشتري والتقارير الفرعية"}
-            {simulationRole === "visitor" && "واجهة الشركاء الجدد"}
+            {isSuperAdmin
+              ? "إدارة المنصة بالكامل، التجار، باقات الاشتراك، والعمولات"
+              : `إدارة متجرك والمنتجات الخاصة بك — البريد: ${userEmail}`}
           </p>
         </div>
         <div className="flex gap-2 items-center">
           <button
             onClick={logout}
-            className="w-10 h-10 rounded-full border border-brand-dark/10 grid place-items-center bg-card hover:bg-neutral-100 transition"
+            className="flex items-center gap-2 px-3 py-2 rounded-xl border border-brand-dark/10 bg-card hover:bg-neutral-100 transition text-xs font-bold text-destructive"
             aria-label="خروج"
           >
             <LogOut className="w-4 h-4" />
+            <span>تسجيل الخروج</span>
           </button>
         </div>
       </div>
 
-      <div className="px-4 mb-4 overflow-x-auto no-scrollbar">
+      <div className="px-4 mb-6 overflow-x-auto no-scrollbar">
         <div className="flex gap-2 min-w-max">
           {tabs.map((t) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
                 tab === t.key
-                  ? "bg-brand-dark text-brand-bg"
-                  : "bg-card text-brand-dark border border-brand-dark/10"
+                  ? "bg-brand-dark text-brand-bg shadow-sm"
+                  : "bg-card text-brand-dark border border-brand-dark/10 hover:bg-neutral-100"
               }`}
             >
               <t.icon className="w-3.5 h-3.5" />
@@ -401,207 +327,234 @@ function AdminPage() {
         </div>
       </div>
 
-      {tab === "marketplace" && simulationRole === "super_admin" && <SuperAdminDashboard />}
-      {tab === "seller_dashboard" &&
-        (simulationRole === "seller" || simulationRole === "super_admin") && (
-          <SellerDashboard
-            sellerId={activeSellerId}
-            products={productsList.filter(
-              (p) => MultiVendorStorage.getProductSeller(p.id) === activeSellerId,
-            )}
-          />
-        )}
-      {tab === "onboarding" && <VisitorDashboard />}
-      {tab === "customer_dashboard" && (
-        <div className="px-4 py-8 text-center space-y-4">
-          <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full grid place-items-center mx-auto">
-            <UserCheck className="w-8 h-8" />
-          </div>
-          <h3 className="text-base font-bold text-brand-dark">
-            بوابة العميل الوفي (Customer Loyalty)
-          </h3>
-          <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-            أهلاً بك! يمكنك تتبع طلباتك، تعديل عناوين التوصيل، ومشاهدة كوبونات الخصم والجوائز
-            الممنوحة لك من الإدارة هنا.
-          </p>
-          <div className="bg-card border border-brand-dark/5 p-4 rounded-2xl max-w-sm mx-auto">
-            <span className="text-[10px] text-muted-foreground block">رصيد الهدايا الحالي</span>
-            <span className="text-xl font-bold text-brand-primary">150 نقطة</span>
-          </div>
-        </div>
-      )}
-
-      {tab === "products" && (simulationRole === "seller" || simulationRole === "super_admin") && (
-        <ProductsAdmin sellerId={activeSellerId} isSeller={simulationRole === "seller"} />
-      )}
-      {tab === "orders" && (simulationRole === "seller" || simulationRole === "super_admin") && (
-        <OrdersAdmin sellerId={activeSellerId} isSeller={simulationRole === "seller"} />
-      )}
-      {tab === "categories" &&
-        (simulationRole === "seller" || simulationRole === "super_admin") && (
-          <CategoriesAdmin isSeller={simulationRole === "seller"} sellerId={activeSellerId} />
-        )}
-      {tab === "in_app_chat" &&
-        (simulationRole === "seller" || simulationRole === "super_admin") && (
-          <InAppChatAndTeams
-            currentUserEmail={userEmail}
-            sellerId={activeSellerId}
-            isSuperAdmin={simulationRole === "super_admin"}
-          />
-        )}
-      {tab === "wallet" && (simulationRole === "seller" || simulationRole === "super_admin") && (
-        <SellerWalletView
+      {tab === "marketplace" && isSuperAdmin && <SuperAdminDashboard />}
+      {tab === "seller_dashboard" && (isSeller || isSuperAdmin) && (
+        <SellerDashboard
           sellerId={activeSellerId}
-          isSuperAdmin={simulationRole === "super_admin"}
+          products={productsList.filter(
+            (p) => MultiVendorStorage.getProductSeller(p.id) === activeSellerId,
+          )}
         />
       )}
-      {tab === "messages" && simulationRole === "super_admin" && <MessagesAdmin />}
-      {tab === "facebook" && simulationRole === "super_admin" && <FacebookAdmin />}
-      {tab === "settings" && simulationRole === "super_admin" && <SettingsAdmin />}
+
+      {tab === "products" && (isSeller || isSuperAdmin) && (
+        <ProductsAdmin
+          sellerId={activeSellerId}
+          isSeller={!isSuperAdmin}
+          isRealAdmin={isSuperAdmin}
+        />
+      )}
+      {tab === "orders" && (isSeller || isSuperAdmin) && (
+        <OrdersAdmin sellerId={activeSellerId} isSeller={!isSuperAdmin} />
+      )}
+      {tab === "categories" && (isSeller || isSuperAdmin) && (
+        <CategoriesAdmin isSeller={!isSuperAdmin} sellerId={activeSellerId} />
+      )}
+      {tab === "in_app_chat" && (isSeller || isSuperAdmin) && (
+        <InAppChatAndTeams
+          currentUserEmail={userEmail}
+          sellerId={activeSellerId}
+          isSuperAdmin={isSuperAdmin}
+        />
+      )}
+      {tab === "wallet" && (isSeller || isSuperAdmin) && (
+        <SellerWalletView sellerId={activeSellerId} isSuperAdmin={isSuperAdmin} />
+      )}
+      {tab === "messages" && isSuperAdmin && <MessagesAdmin />}
+      {tab === "facebook" && isSuperAdmin && <FacebookAdmin />}
+      {tab === "settings" && isSuperAdmin && <SettingsAdmin />}
     </PageShell>
   );
 }
 
 // ---------- Products ----------
-function ProductsAdmin({ sellerId, isSeller }: { sellerId?: string; isSeller?: boolean }) {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<Product | "new" | null>(null);
-
-  const load = async () => {
-    setLoading(true);
-    const [{ data: prods }, { data: cats }] = await Promise.all([
-      supabase.from("products").select("*").order("created_at", { ascending: false }),
-      supabase.from("categories").select("*").order("sort_order"),
-    ]);
-
-    let productList = (prods as Product[]) ?? [];
-    const customMap = MarketplaceStore.getCustomProducts();
-    const existingIds = new Set(productList.map((p) => p.id));
-    productList = productList.map((p) => (customMap[p.id] ? { ...p, ...customMap[p.id] } : p));
-    Object.keys(customMap).forEach((id) => {
-      if (!existingIds.has(id)) {
-        productList.unshift({
-          id,
-          name: "منتج جديد",
-          price: 100,
-          in_stock: true,
-          created_at: new Date().toISOString(),
-          ...customMap[id],
-        } as Product);
-      }
-    });
-
-    productList = MarketplaceStore.filterDeletedProducts(productList);
-
-    if (isSeller && sellerId) {
-      productList = productList.filter(
-        (p) => MultiVendorStorage.getProductSeller(p.id) === sellerId,
-      );
-    }
-
-    let categoryList = (cats as Category[]) ?? [];
-    if (categoryList.length === 0) {
-      categoryList = [
-        { id: "cat-1", name: "غرف معيشة", sort_order: 1 },
-        { id: "cat-2", name: "غرف نوم", sort_order: 2 },
-        { id: "cat-3", name: "طاولات طعام", sort_order: 3 },
-        { id: "cat-4", name: "ديكورات", sort_order: 4 },
-        { id: "cat-5", name: "أجهزة كهربائية", sort_order: 5 },
-      ];
-    }
-
-    setProducts(productList);
-    setCategories(categoryList);
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    load();
-    window.addEventListener("beitak-products-updated", load);
-    window.addEventListener("storage", load);
-    return () => {
-      window.removeEventListener("beitak-products-updated", load);
-      window.removeEventListener("storage", load);
-    };
-  }, [isSeller, sellerId]);
-
-  const del = async (id: string) => {
-    try {
-      await supabase.from("products").delete().eq("id", id);
-    } catch {
-      // Fallback
-    }
-    MarketplaceStore.deleteProduct(id);
-    toast.success("تم حذف المنتج بنجاح");
-    load();
-  };
-
-  return (
-    <div className="px-4 space-y-3">
-      <button
-        onClick={() => setEditing("new")}
-        className="w-full bg-brand-accent text-brand-dark font-bold py-3 rounded-xl flex items-center justify-center gap-2"
-      >
-        <Plus className="w-4 h-4" /> إضافة منتج جديد
-      </button>
-
-      {loading && <p className="text-center text-sm text-muted-foreground py-8">جاري التحميل...</p>}
-
-      {!loading && products.length === 0 && (
-        <p className="text-center text-sm text-muted-foreground py-10">
-          مفيش منتجات لسه. اضغط "إضافة منتج جديد" للبدء.
-        </p>
-      )}
-
-      {products.map((p) => (
-        <div key={p.id} className="bg-card rounded-2xl p-3 flex gap-3 border border-brand-dark/5">
-          <div className="w-16 h-16 rounded-xl overflow-hidden bg-secondary flex-shrink-0">
-            {p.image_url && (
-              <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <h3 className="font-bold text-sm line-clamp-1">{p.name}</h3>
-            <p className="text-xs text-muted-foreground mb-1">{p.category}</p>
-            <p className="text-brand-accent font-bold text-sm">{formatEGP(Number(p.price))}</p>
-          </div>
-          <div className="flex flex-col gap-1">
-            <button
-              onClick={() => setEditing(p)}
-              className="w-8 h-8 rounded-lg bg-secondary grid place-items-center"
-              aria-label="تعديل"
-            >
-              <Pencil className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => del(p.id)}
-              className="w-8 h-8 rounded-lg bg-destructive/10 text-destructive grid place-items-center"
-              aria-label="حذف"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      ))}
-
-      {editing && (
-        <ProductEditor
-          product={editing === "new" ? null : editing}
-          categories={categories}
-          onClose={() => setEditing(null)}
-          onSaved={() => {
-            setEditing(null);
-            load();
-          }}
-          sellerId={sellerId}
-          isSeller={isSeller}
-        />
-      )}
-    </div>
-  );
+function ProductsAdmin({
+  sellerId,
+}: {
+  sellerId?: string;
+  isSeller?: boolean;
+  isRealAdmin?: boolean;
+}) {
+  return <ProductManagementSystem sellerId={sellerId} />;
 }
+
+function detectProductGroup(
+  categoryName: string,
+  productType: string,
+):
+  | "clothing"
+  | "shoes"
+  | "real_estate"
+  | "cars"
+  | "food"
+  | "furniture"
+  | "electronics"
+  | "books"
+  | "general" {
+  const text = (categoryName + " " + productType).toLowerCase();
+  if (
+    text.includes("أحذية") ||
+    text.includes("حذاء") ||
+    text.includes("كوتشي") ||
+    text.includes("جزمة")
+  )
+    return "shoes";
+  if (
+    text.includes("ملابس") ||
+    text.includes("أزياء") ||
+    text.includes("عبايات") ||
+    text.includes("فستان") ||
+    text.includes("قميص") ||
+    text.includes("بنطلون") ||
+    text.includes("موضة") ||
+    text.includes("نساء")
+  )
+    return "clothing";
+  if (
+    text.includes("عقار") ||
+    text.includes("شقة") ||
+    text.includes("فيلا") ||
+    text.includes("أرض") ||
+    text.includes("مكتب")
+  )
+    return "real_estate";
+  if (
+    text.includes("سيار") ||
+    text.includes("مركب") ||
+    text.includes("موتوسيكل") ||
+    text.includes("شاحن")
+  )
+    return "cars";
+  if (
+    text.includes("غذ") ||
+    text.includes("طعام") ||
+    text.includes("مأكولات") ||
+    text.includes("تموين") ||
+    text.includes("مشروب")
+  )
+    return "food";
+  if (
+    text.includes("أثاث") ||
+    text.includes("ديكور") ||
+    text.includes("مفروشات") ||
+    text.includes("طاولة") ||
+    text.includes("غرفة")
+  )
+    return "furniture";
+  if (
+    text.includes("إلكترون") ||
+    text.includes("جهاز") ||
+    text.includes("هاتف") ||
+    text.includes("موبايل") ||
+    text.includes("كمبيوتر") ||
+    text.includes("شاشة")
+  )
+    return "electronics";
+  if (
+    text.includes("كتب") ||
+    text.includes("مكتب") ||
+    text.includes("رواية") ||
+    text.includes("قرطاس")
+  )
+    return "books";
+  return "general";
+}
+
+const SUBCATEGORIES_MAP: Record<string, string[]> = {
+  "أجهزة إلكترونية": [
+    "هواتف وأجهزة ذكية",
+    "تابلت وايباد",
+    "سماعات وإكسسوارات",
+    "لاب توب وأجهزة كمبيوتر",
+    "شاشات وتلفزيونات",
+    "أجهزة منزلية إلكترونية",
+    "ساعات ذكية",
+  ],
+  "أجهزة إلكترونية وهواتف": [
+    "هواتف وأجهزة ذكية",
+    "تابلت وايباد",
+    "سماعات وإكسسوارات",
+    "لاب توب وأجهزة كمبيوتر",
+    "شاشات وتلفزيونات",
+    "أجهزة منزلية إلكترونية",
+    "ساعات ذكية",
+  ],
+  إلكترونيات: [
+    "هواتف وأجهزة ذكية",
+    "تابلت وايباد",
+    "سماعات وإكسسوارات",
+    "لاب توب وأجهزة كمبيوتر",
+    "شاشات وتلفزيونات",
+    "أجهزة منزلية إلكترونية",
+    "ساعات ذكية",
+  ],
+  "أثاث ومفروشات": [
+    "غرف نوم",
+    "صالون وأنتريه",
+    "سفرة وطاولات",
+    "مفروشات وسجاد",
+    "ديكورات وإضاءة",
+    "أثاث مكتبي",
+  ],
+  "أثاث وديكور": [
+    "غرف نوم",
+    "صالون وأنتريه",
+    "سفرة وطاولات",
+    "مفروشات وسجاد",
+    "ديكورات وإضاءة",
+    "أثاث مكتبي",
+  ],
+  "أزياء وموضة": [
+    "ملابس نسائية",
+    "عبايات وجلابيات",
+    "أحذية وحقائب نسائية",
+    "إكسسوارات ومجوهرات",
+    "ملابس رجالية",
+    "أحذية رجالية",
+    "ملابس وأحذية الأطفال",
+  ],
+  "قسم النساء والجمال": [
+    "فساتين وسواريه",
+    "عبايات خليجي واستقبال",
+    "ملابس منزلية ولانجيري",
+    "عناية بالبشرة ومكياج",
+    "عطور وبخور",
+    "حقائب وأحذية نسائية",
+  ],
+  "مستحضرات تجميل وعناية": [
+    "عناية بالبشرة",
+    "مكياج وأدوات التجميل",
+    "عطور وبخور",
+    "عناية بالشعر",
+    "أجهزة العناية الشخصية",
+  ],
+  "أدوات منزلية ومطبخ": [
+    "أواني ومعدات طهي",
+    "أدوات مائدة وتقديم",
+    "منتجات تنظيم وتنظيف",
+    "أجهزة مطبخ صغيرة",
+  ],
+  "أجهزة منزلية": [
+    "ثلاجات وديد فريزر",
+    "غسالات ومجففات",
+    "بوتاجازات وأوفران",
+    "تكييفات ومراوح",
+    "أجهزة مطبخ صغيرة",
+  ],
+  "عقارات وأراضي": [
+    "شقق للبيع",
+    "شقق للإيجار",
+    "فيلات ومصايف",
+    "محلات ومكاتب تجارية",
+    "أراضي للبيع",
+  ],
+  عقارات: ["شقق للبيع", "شقق للإيجار", "فيلات ومصايف", "محلات ومكاتب تجارية", "أراضي للبيع"],
+  "سيارات ومركبات": ["سيارات للبيع", "قطع غيار وإكسسوارات", "موتوسيكلات ودرجات", "إطارات وبطاريات"],
+  "سوبرماركت ومواد غذائية": ["أغذية طازجة", "مشروبات ومأكولات", "منظفات ومنتجات عناية منزلية"],
+  "أغذية ومأكولات": ["أغذية طازجة", "مشروبات ومأكولات", "حلويات ومعلبات"],
+  "كتب وأدوات مكتبية": ["روايات وكتب", "أدوات مدرسية ومكتبية", "ألعاب تعليمية"],
+  "ألعاب ومستلزمات أطفال": ["ألعاب أطفال", "عربات ومقاعد أطفال", "ملابس ومستلزمات رضع"],
+};
 
 function ProductEditor({
   product,
@@ -610,6 +563,7 @@ function ProductEditor({
   onSaved,
   sellerId,
   isSeller,
+  isRealAdmin,
 }: {
   product: Product | null;
   categories: Category[];
@@ -617,27 +571,89 @@ function ProductEditor({
   onSaved: () => void;
   sellerId?: string;
   isSeller?: boolean;
+  isRealAdmin?: boolean;
 }) {
   const meta = product ? MarketplaceStore.getProductMetadata(product.id) : null;
+  const initialSpecs = (product?.specifications || meta?.specifications || {}) as Record<
+    string,
+    string
+  >;
+
   const [form, setForm] = useState({
     name: product?.name ?? "",
     description: product?.description ?? "",
     price: product?.price?.toString() ?? "",
     image_url: product?.image_url ?? "",
-    category: product?.category ?? categories[0]?.name ?? "",
+    category: product?.category ?? categories[0]?.name ?? "أزياء وملابس",
+    product_type: initialSpecs.product_type ?? "",
     in_stock: product?.in_stock ?? true,
-    featured: product?.featured ?? product?.is_best_seller ?? false,
-    is_best_seller: product?.is_best_seller ?? product?.featured ?? false,
+    featured:
+      isRealAdmin && !isSeller ? (product?.featured ?? product?.is_best_seller ?? false) : false,
+    is_best_seller:
+      isRealAdmin && !isSeller ? (product?.is_best_seller ?? product?.featured ?? false) : false,
     for_women_only: product?.for_women_only ?? false,
     deliveryFee: meta?.deliveryFee?.toString() ?? "",
+    // Clothing & Shoes
     colors: (meta?.colors || product?.colors || []).join(", "),
     sizes: (meta?.sizes || product?.sizes || []).join(", "),
+    image_color_map: (product?.image_color_map || meta?.image_color_map || {}) as Record<
+      string,
+      string
+    >,
+    fabric: initialSpecs.fabric ?? "",
     patterns: (meta?.patterns || product?.patterns || []).join(", "),
-    area_sqm: product?.area_sqm?.toString() ?? meta?.specifications?.area_sqm ?? "",
-    capacity_weight:
-      product?.capacity_weight?.toString() ?? meta?.specifications?.capacity_weight ?? "",
+    gender: initialSpecs.gender ?? "للجنسين",
+    season: initialSpecs.season ?? "صيفي",
+    // Real Estate
+    area_sqm: product?.area_sqm?.toString() ?? initialSpecs.area_sqm ?? "",
+    bedrooms: initialSpecs.bedrooms ?? "",
+    bathrooms: initialSpecs.bathrooms ?? "",
+    floor: initialSpecs.floor ?? "",
+    furnished: initialSpecs.furnished ?? "غير مفروشة",
+    // Cars
+    car_brand: initialSpecs.car_brand ?? "",
+    car_model: initialSpecs.car_model ?? "",
+    car_year: initialSpecs.car_year ?? "",
+    car_mileage: initialSpecs.car_mileage ?? "",
+    car_fuel: initialSpecs.car_fuel ?? "بنزين",
+    // Food
+    capacity_weight: product?.capacity_weight?.toString() ?? initialSpecs.capacity_weight ?? "",
+    food_unit: initialSpecs.food_unit ?? "كجم",
+    expiry_date: initialSpecs.expiry_date ?? "",
+    // Furniture
+    dimensions: initialSpecs.dimensions ?? "",
+    material: initialSpecs.material ?? "",
+    // Electronics
+    electronics_brand: initialSpecs.electronics_brand ?? "",
+    electronics_model: initialSpecs.electronics_model ?? "",
+    electronics_specs: initialSpecs.electronics_specs ?? "",
+    // Books
+    book_author: initialSpecs.book_author ?? "",
+    book_publisher: initialSpecs.book_publisher ?? "",
+    book_language: initialSpecs.book_language ?? "العربية",
   });
   const [saving, setSaving] = useState(false);
+
+  const productGroup = detectProductGroup(form.category, form.product_type);
+
+  const availableSubcategories = useMemo(() => {
+    if (!form.category) return [];
+    // 1. Get from MarketplaceStore dynamic categories tree
+    const allCats = MarketplaceStore.getCategories();
+    const parentCat = allCats.find((c) => c.name === form.category || c.id === form.category);
+    let storeSubs: string[] = [];
+    if (parentCat) {
+      storeSubs = allCats.filter((c) => c.parentId === parentCat.id).map((c) => c.name);
+    }
+    // 2. Get from SUBCATEGORIES_MAP
+    const mappedSubs =
+      SUBCATEGORIES_MAP[form.category] ||
+      Object.entries(SUBCATEGORIES_MAP).find(
+        ([key]) => form.category.includes(key) || key.includes(form.category),
+      )?.[1] ||
+      [];
+    return Array.from(new Set([...storeSubs, ...mappedSubs])).filter(Boolean);
+  }, [form.category]);
 
   const [galleryAssets, setGalleryAssets] = useState<GalleryAsset[]>(() => {
     if (!product) return [];
@@ -683,10 +699,27 @@ function ProductEditor({
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.category) return toast.error("اختار قسم الأول من تبويب الأقسام");
-    setSaving(true);
 
-    const prodId = product?.id || `prod-${Date.now()}`;
+    // Mandatory Field Validations
+    if (!form.name.trim()) {
+      return toast.error("اسم المنتج حقل إلزامي! يرجى إدخال اسم المنتج.");
+    }
+    const numPrice = parseFloat(form.price);
+    if (!form.price || isNaN(numPrice) || numPrice <= 0) {
+      return toast.error("السعر حقل إلزامي! يرجى إدخال سعر صحيح أكبر من صفر.");
+    }
+    if (!form.category) {
+      return toast.error("القسم الرئيسي حقل إلزامي! يرجى اختيار القسم الرئيسي.");
+    }
+    if (availableSubcategories.length > 0 && !form.product_type.trim()) {
+      return toast.error("القسم الفرعي حقل إلزامي! يرجى تحديد القسم الفرعي المناسب من القائمة.");
+    }
+    if (!form.image_url.trim() && galleryAssets.length === 0) {
+      return toast.error(
+        "صورة المنتج حقل إلزامي! يرجى رفع صورة المنتج من جهازك أو إضافة رابط صورة.",
+      );
+    }
+
     const colorsArray = form.colors
       .split(",")
       .map((c) => c.trim())
@@ -695,10 +728,64 @@ function ProductEditor({
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
+
+    if (productGroup === "clothing" || productGroup === "shoes") {
+      if (colorsArray.length === 0) {
+        return toast.error("الألوان المتاحة حقل إلزامي لمنتجات الملابس والأحذية!");
+      }
+      if (sizesArray.length === 0) {
+        return toast.error("المقاسات المتاحة حقل إلزامي لمنتجات الملابس والأحذية!");
+      }
+    }
+
+    setSaving(true);
+
+    const prodId = product?.id || `prod-${Date.now()}`;
     const patternsArray = form.patterns
       .split(",")
       .map((p) => p.trim())
       .filter(Boolean);
+
+    // Build group-specific specs object
+    const specs: Record<string, string> = {
+      product_type: form.product_type,
+    };
+
+    if (productGroup === "clothing") {
+      if (form.fabric) specs.fabric = form.fabric;
+      if (form.gender) specs.gender = form.gender;
+      if (form.season) specs.season = form.season;
+    } else if (productGroup === "real_estate") {
+      if (form.area_sqm) specs.area_sqm = form.area_sqm;
+      if (form.bedrooms) specs.bedrooms = form.bedrooms;
+      if (form.bathrooms) specs.bathrooms = form.bathrooms;
+      if (form.floor) specs.floor = form.floor;
+      if (form.furnished) specs.furnished = form.furnished;
+    } else if (productGroup === "cars") {
+      if (form.car_brand) specs.car_brand = form.car_brand;
+      if (form.car_model) specs.car_model = form.car_model;
+      if (form.car_year) specs.car_year = form.car_year;
+      if (form.car_mileage) specs.car_mileage = form.car_mileage;
+      if (form.car_fuel) specs.car_fuel = form.car_fuel;
+    } else if (productGroup === "food") {
+      if (form.capacity_weight) specs.capacity_weight = form.capacity_weight;
+      if (form.food_unit) specs.food_unit = form.food_unit;
+      if (form.expiry_date) specs.expiry_date = form.expiry_date;
+    } else if (productGroup === "furniture") {
+      if (form.dimensions) specs.dimensions = form.dimensions;
+      if (form.material) specs.material = form.material;
+    } else if (productGroup === "electronics") {
+      if (form.electronics_brand) specs.electronics_brand = form.electronics_brand;
+      if (form.electronics_model) specs.electronics_model = form.electronics_model;
+      if (form.electronics_specs) specs.electronics_specs = form.electronics_specs;
+    } else if (productGroup === "books") {
+      if (form.book_author) specs.book_author = form.book_author;
+      if (form.book_publisher) specs.book_publisher = form.book_publisher;
+      if (form.book_language) specs.book_language = form.book_language;
+    }
+
+    // Sellers CANNOT feature products on homepage!
+    const allowHomepageFeature = !isSeller && !!isRealAdmin;
 
     const payload = {
       id: prodId,
@@ -708,14 +795,21 @@ function ProductEditor({
       image_url: form.image_url.trim() || null,
       category: form.category,
       in_stock: form.in_stock,
-      featured: form.featured || form.is_best_seller,
-      is_best_seller: form.is_best_seller || form.featured,
+      featured: allowHomepageFeature ? form.featured || form.is_best_seller : false,
+      is_best_seller: allowHomepageFeature ? form.is_best_seller || form.featured : false,
       for_women_only: form.for_women_only,
       colors: colorsArray.length > 0 ? colorsArray : undefined,
       sizes: sizesArray.length > 0 ? sizesArray : undefined,
       patterns: patternsArray.length > 0 ? patternsArray : undefined,
-      area_sqm: form.area_sqm.trim() || undefined,
-      capacity_weight: form.capacity_weight.trim() || undefined,
+      image_color_map:
+        Object.keys(form.image_color_map || {}).length > 0 ? form.image_color_map : undefined,
+      area_sqm:
+        productGroup === "real_estate" && form.area_sqm.trim() ? form.area_sqm.trim() : undefined,
+      capacity_weight:
+        productGroup === "food" && form.capacity_weight.trim()
+          ? form.capacity_weight.trim()
+          : undefined,
+      specifications: specs,
     };
 
     try {
@@ -727,7 +821,6 @@ function ProductEditor({
       // Fallback
     }
 
-    // Always update local marketplace store so product edits work immediately
     MarketplaceStore.saveCustomProduct(prodId, payload);
 
     if (sellerId) {
@@ -744,15 +837,14 @@ function ProductEditor({
       colors: colorsArray.length > 0 ? colorsArray : undefined,
       sizes: sizesArray.length > 0 ? sizesArray : undefined,
       patterns: patternsArray.length > 0 ? patternsArray : undefined,
+      image_color_map:
+        Object.keys(form.image_color_map || {}).length > 0 ? form.image_color_map : undefined,
       deliveryFee: parseFloat(form.deliveryFee) || undefined,
-      specifications: {
-        area_sqm: form.area_sqm.trim(),
-        capacity_weight: form.capacity_weight.trim(),
-      },
+      specifications: specs,
     });
 
     setSaving(false);
-    toast.success("تم حفظ وتحديث بيانات المنتج والمعرض بنجاح!");
+    toast.success("تم حفظ وتحديث بيانات المنتج بنجاح!");
     onSaved();
   };
 
@@ -760,142 +852,621 @@ function ProductEditor({
     <div className="fixed inset-0 z-50 bg-brand-dark/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
       <form
         onSubmit={save}
-        className="bg-brand-bg w-full max-w-xl rounded-t-3xl sm:rounded-3xl p-6 max-h-[95vh] overflow-y-auto space-y-3 shadow-2xl border border-brand-dark/10"
+        className="bg-brand-bg w-full max-w-2xl rounded-t-3xl sm:rounded-3xl p-6 max-h-[95vh] overflow-y-auto space-y-4 shadow-2xl border border-brand-dark/10"
+        dir="rtl"
       >
-        <div className="flex justify-between items-center mb-2">
-          <h2 className="text-lg font-bold">{product ? "تعديل منتج" : "منتج جديد"}</h2>
+        <div className="flex justify-between items-center border-b border-brand-dark/10 pb-3">
+          <h2 className="text-lg font-black text-brand-dark">
+            {product ? "تعديل المنتج" : "إضافة منتج جديد"}
+          </h2>
           <button
             type="button"
             onClick={onClose}
-            className="text-muted-foreground text-sm font-bold"
+            className="text-muted-foreground hover:text-brand-dark text-sm font-bold cursor-pointer"
           >
-            إلغاء
+            إلغاء ✕
           </button>
         </div>
 
-        <AdminField label="اسم المنتج">
-          <input
-            required
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="admin-input"
-          />
-        </AdminField>
+        {/* Step 1: Category & Product Type selection */}
+        <div className="bg-white p-4 rounded-2xl border border-brand-dark/10 space-y-3 shadow-xs">
+          <div className="text-xs font-black text-brand-primary flex items-center gap-1.5">
+            <span>🏷️</span> Step 1: اختيار القسم ونوع المنتج
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <AdminField label="القسم الرئيسي *">
+              <select
+                value={form.category}
+                onChange={(e) => setForm({ ...form, category: e.target.value })}
+                className="admin-input font-bold"
+              >
+                {categories.length === 0 && <option value="">— لا يوجد أقسام —</option>}
+                {categories.map((c) => (
+                  <option key={c.id} value={c.name}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </AdminField>
 
-        <AdminField label="الوصف">
-          <textarea
-            rows={2}
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
-            className="admin-input"
-          />
-        </AdminField>
+            <AdminField label="القسم الفرعي * (يتحدد ديناميكياً بناءً على القسم الرئيسي)">
+              <div className="space-y-1.5">
+                {availableSubcategories.length > 0 ? (
+                  <select
+                    value={form.product_type}
+                    onChange={(e) => setForm({ ...form, product_type: e.target.value })}
+                    className="admin-input font-bold"
+                  >
+                    <option value="">— اختر قسم فرعي من القائمة —</option>
+                    {availableSubcategories.map((sub) => (
+                      <option key={sub} value={sub}>
+                        {sub}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 font-bold space-y-1">
+                    <p>⚠️ لا تتوفر أقسام فرعية مضافة حالياً لهذا القسم الرئيسي.</p>
+                    <p className="text-[11px] text-amber-800 font-normal">
+                      يمكنك كتابة القسم الفرعي أسفله أو ترك الإدخال وإضافة أفرع جديدة للقسم الرئيسي
+                      من صفحة <strong>"الأقسام والتصنيفات"</strong> لاحقاً.
+                    </p>
+                  </div>
+                )}
+                <input
+                  type="text"
+                  placeholder="أو اكتب اسم القسم الفرعي يدوياً..."
+                  value={form.product_type}
+                  onChange={(e) => setForm({ ...form, product_type: e.target.value })}
+                  className="admin-input text-xs"
+                />
+              </div>
+            </AdminField>
+          </div>
+        </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <AdminField label="السعر (ج.م)">
+        {/* Basic Info */}
+        <div className="space-y-3">
+          <AdminField label="اسم المنتج *">
             <input
               required
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.price}
-              onChange={(e) => setForm({ ...form, price: e.target.value })}
+              placeholder="أدخل اسم المنتج بوضوح..."
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              className="admin-input font-bold"
+            />
+          </AdminField>
+
+          <AdminField label="الوصف والمواصفات">
+            <textarea
+              rows={2}
+              placeholder="اكتب وصفاً جذاباً ومفصلاً للمنتج..."
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
               className="admin-input"
             />
           </AdminField>
-          <AdminField label="القسم">
-            <select
-              value={form.category}
-              onChange={(e) => setForm({ ...form, category: e.target.value })}
-              className="admin-input"
-            >
-              {categories.length === 0 && <option value="">— لا يوجد أقسام —</option>}
-              {categories.map((c) => (
-                <option key={c.id} value={c.name}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </AdminField>
+
+          <div className="grid grid-cols-2 gap-3">
+            <AdminField label="السعر (ج.م) *">
+              <input
+                required
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                value={form.price}
+                onChange={(e) => setForm({ ...form, price: e.target.value })}
+                className="admin-input font-bold text-emerald-800"
+              />
+            </AdminField>
+
+            <AdminField label="رسوم التوصيل/الشحن (ج.م)">
+              <input
+                type="number"
+                min="0"
+                placeholder="مثال: 50"
+                value={form.deliveryFee}
+                onChange={(e) => setForm({ ...form, deliveryFee: e.target.value })}
+                className="admin-input"
+              />
+            </AdminField>
+          </div>
         </div>
 
-        {/* Colors, Sizes and Patterns Inputs */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <AdminField label="الألوان المتاحة (افصل بفاصلة)">
-            <input
-              type="text"
-              placeholder="أسود, أبيض, بني, بيج, كحلي"
-              value={form.colors}
-              onChange={(e) => setForm({ ...form, colors: e.target.value })}
-              className="admin-input"
-            />
-          </AdminField>
-          <AdminField label="المقاسات والأبعاد (أرقام أو أحرف)">
-            <input
-              type="text"
-              placeholder="38, 39, 40, 41, 42 أو 120x80 سم"
-              value={form.sizes}
-              onChange={(e) => setForm({ ...form, sizes: e.target.value })}
-              className="admin-input"
-            />
-          </AdminField>
-          <AdminField label="النقشات والزخارف (النقاش - افصل بفاصلة)">
-            <input
-              type="text"
-              placeholder="سادة, مودرن, حفر ليزر, كلاسيك"
-              value={form.patterns}
-              onChange={(e) => setForm({ ...form, patterns: e.target.value })}
-              className="admin-input"
-            />
-          </AdminField>
+        {/* Step 2 & 3: Dynamic Category Specific Fields & Universal Variants */}
+        <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200 space-y-3">
+          <div className="text-xs font-black text-amber-900 flex items-center justify-between">
+            <span className="flex items-center gap-1.5">
+              <span>⚙️</span> مواصفات وديناميكية خيارات الفئة (
+              {productGroup === "clothing" && "ملابس وأزياء"}
+              {productGroup === "shoes" && "أحذية وموضة"}
+              {productGroup === "real_estate" && "عقارات وأراضي"}
+              {productGroup === "cars" && "سيارات ومركبات"}
+              {productGroup === "food" && "أغذية ومأكولات"}
+              {productGroup === "furniture" && "أثاث وديكور"}
+              {productGroup === "electronics" && "إلكترونيات وأجهزة"}
+              {productGroup === "books" && "كتب وأدوات مكتبية"}
+              {productGroup === "general" && "منتج عام"})
+            </span>
+          </div>
+
+          {/* Universal Amazon-Style Variants & Image Mapper for ALL Product Categories */}
+          <div className="bg-white p-3.5 rounded-2xl border border-amber-200 space-y-3 shadow-xs">
+            <div className="text-xs font-black text-brand-dark flex items-center gap-1.5 border-b border-brand-dark/5 pb-2">
+              <span>🎨</span> الخيارات المتعددة وربط الصور بالبيانات (أسلوب أمازون - ينطبق على كافة
+              الأقسام):
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <AdminField label="الألوان / الخامات / الموديلات المتاحة (فواصل بين الخيارات)">
+                <input
+                  type="text"
+                  placeholder="مثال: أسود, بني, ذهبي, رمادي (أو خيار واحد)"
+                  value={form.colors}
+                  onChange={(e) => setForm({ ...form, colors: e.target.value })}
+                  className="admin-input"
+                />
+              </AdminField>
+              <AdminField label="المقاسات / الأبعاد / المساحات / المواصفات المتاحة">
+                <input
+                  type="text"
+                  placeholder="مثال: S, M, L أو 120x180 سم أو 250 م² أو 128GB"
+                  value={form.sizes}
+                  onChange={(e) => setForm({ ...form, sizes: e.target.value })}
+                  className="admin-input"
+                />
+              </AdminField>
+            </div>
+
+            {/* Amazon Style Image-Variant Mapper */}
+            {form.colors.trim().length > 0 && (
+              <div className="bg-amber-50/40 p-3 rounded-2xl border border-brand-dark/15 space-y-2">
+                <div className="text-xs font-bold text-brand-dark flex items-center gap-1.5">
+                  <span>🖼️</span> ربط صورة خاصة لكل لون/خيار (تتبدل الصورة تلقائياً عند اختيار
+                  المشتري للون):
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {form.colors
+                    .split(",")
+                    .map((c) => c.trim())
+                    .filter(Boolean)
+                    .map((colName) => (
+                      <div key={colName} className="flex items-center gap-2 text-xs">
+                        <span className="font-bold shrink-0 min-w-[55px] text-brand-dark bg-secondary px-2 py-1 rounded-lg">
+                          {colName}:
+                        </span>
+                        <input
+                          type="text"
+                          placeholder="رابط صورة هذا الخيار أو ارفع ملف من الجهاز..."
+                          value={form.image_color_map[colName] || ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setForm((f) => ({
+                              ...f,
+                              image_color_map: {
+                                ...f.image_color_map,
+                                [colName]: val,
+                              },
+                            }));
+                          }}
+                          className="admin-input text-[11px] py-1"
+                        />
+                        <label className="bg-brand-primary text-white text-[10px] font-bold px-2 py-1.5 rounded-lg cursor-pointer hover:bg-brand-dark transition shrink-0 flex items-center gap-1">
+                          <span>رفع</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onload = (evt) => {
+                                  if (evt.target?.result) {
+                                    const resUrl = evt.target.result as string;
+                                    setForm((f) => ({
+                                      ...f,
+                                      image_color_map: {
+                                        ...f.image_color_map,
+                                        [colName]: resUrl,
+                                      },
+                                    }));
+                                    toast.success(`تم رفع صورة خيار ${colName} بنجاح`);
+                                  }
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                          />
+                        </label>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* CLOTHING FIELDS */}
+          {productGroup === "clothing" && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <AdminField label="نوع القماش / الخامة">
+                  <input
+                    type="text"
+                    placeholder="قطن 100%, كريب, حرير, صوف..."
+                    value={form.fabric}
+                    onChange={(e) => setForm({ ...form, fabric: e.target.value })}
+                    className="admin-input"
+                  />
+                </AdminField>
+
+                <AdminField label="النقشة / تصميم القماش (Pattern)">
+                  <input
+                    type="text"
+                    placeholder="سادة, مطبوع, مشجر, مخطط, كاروهات, مطرز"
+                    value={form.patterns}
+                    onChange={(e) => setForm({ ...form, patterns: e.target.value })}
+                    className="admin-input"
+                  />
+                </AdminField>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <AdminField label="الفئة الموجه لها">
+                  <select
+                    value={form.gender}
+                    onChange={(e) => setForm({ ...form, gender: e.target.value })}
+                    className="admin-input font-bold"
+                  >
+                    <option value="نسائي">نسائي</option>
+                    <option value="رجالي">رجالي</option>
+                    <option value="أطفال">أطفال</option>
+                    <option value="للجنسين">للجنسين</option>
+                  </select>
+                </AdminField>
+
+                <AdminField label="الموسم">
+                  <select
+                    value={form.season}
+                    onChange={(e) => setForm({ ...form, season: e.target.value })}
+                    className="admin-input font-bold"
+                  >
+                    <option value="صيفي">صيفي</option>
+                    <option value="شتوي">شتوي</option>
+                    <option value="خريفي">خريفي</option>
+                    <option value="ربيعي">ربيعي</option>
+                    <option value="طوال العام">طوال العام</option>
+                  </select>
+                </AdminField>
+              </div>
+            </div>
+          )}
+
+          {/* SHOES FIELDS */}
+          {productGroup === "shoes" && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <AdminField label="مقاسات الأحذية المتاحة (مقاس واحد أو عدة مقاسات)">
+                <input
+                  type="text"
+                  placeholder="37, 38, 39, 40, 41, 42, 43..."
+                  value={form.sizes}
+                  onChange={(e) => setForm({ ...form, sizes: e.target.value })}
+                  className="admin-input"
+                />
+              </AdminField>
+
+              <AdminField label="الألوان المتاحة (لون واحد أو عدة ألوان)">
+                <input
+                  type="text"
+                  placeholder="أسود, بني, أبيض, هافان..."
+                  value={form.colors}
+                  onChange={(e) => setForm({ ...form, colors: e.target.value })}
+                  className="admin-input"
+                />
+              </AdminField>
+            </div>
+          )}
+
+          {/* REAL ESTATE FIELDS */}
+          {productGroup === "real_estate" && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <AdminField label="المساحة (متر مربع m²)">
+                  <input
+                    type="text"
+                    placeholder="مثال: 180 م²"
+                    value={form.area_sqm}
+                    onChange={(e) => setForm({ ...form, area_sqm: e.target.value })}
+                    className="admin-input"
+                  />
+                </AdminField>
+
+                <AdminField label="عدد الغرف">
+                  <input
+                    type="number"
+                    placeholder="مثال: 3"
+                    value={form.bedrooms}
+                    onChange={(e) => setForm({ ...form, bedrooms: e.target.value })}
+                    className="admin-input"
+                  />
+                </AdminField>
+
+                <AdminField label="عدد الحمامات">
+                  <input
+                    type="number"
+                    placeholder="مثال: 2"
+                    value={form.bathrooms}
+                    onChange={(e) => setForm({ ...form, bathrooms: e.target.value })}
+                    className="admin-input"
+                  />
+                </AdminField>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <AdminField label="الدور / الطابق">
+                  <input
+                    type="text"
+                    placeholder="مثال: الطابق الثالث"
+                    value={form.floor}
+                    onChange={(e) => setForm({ ...form, floor: e.target.value })}
+                    className="admin-input"
+                  />
+                </AdminField>
+
+                <AdminField label="الحالة / الفرش">
+                  <select
+                    value={form.furnished}
+                    onChange={(e) => setForm({ ...form, furnished: e.target.value })}
+                    className="admin-input font-bold"
+                  >
+                    <option value="غير مفروشة">غير مفروشة</option>
+                    <option value="مفروشة بالكامل">مفروشة بالكامل</option>
+                    <option value="نصف مفروشة">نصف مفروشة</option>
+                  </select>
+                </AdminField>
+              </div>
+            </div>
+          )}
+
+          {/* CARS FIELDS */}
+          {productGroup === "cars" && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <AdminField label="الماركة / الشركة">
+                  <input
+                    type="text"
+                    placeholder="مثال: تويوتا, مرسيدس..."
+                    value={form.car_brand}
+                    onChange={(e) => setForm({ ...form, car_brand: e.target.value })}
+                    className="admin-input"
+                  />
+                </AdminField>
+
+                <AdminField label="الموديل">
+                  <input
+                    type="text"
+                    placeholder="مثال: كورولا, C200..."
+                    value={form.car_model}
+                    onChange={(e) => setForm({ ...form, car_model: e.target.value })}
+                    className="admin-input"
+                  />
+                </AdminField>
+
+                <AdminField label="سنة الصنع">
+                  <input
+                    type="text"
+                    placeholder="مثال: 2024"
+                    value={form.car_year}
+                    onChange={(e) => setForm({ ...form, car_year: e.target.value })}
+                    className="admin-input"
+                  />
+                </AdminField>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <AdminField label="عدد الكيلومترات (كم)">
+                  <input
+                    type="text"
+                    placeholder="مثال: 50,000 كم أو 0 كم (زيرو)"
+                    value={form.car_mileage}
+                    onChange={(e) => setForm({ ...form, car_mileage: e.target.value })}
+                    className="admin-input"
+                  />
+                </AdminField>
+
+                <AdminField label="نوع الوقود">
+                  <select
+                    value={form.car_fuel}
+                    onChange={(e) => setForm({ ...form, car_fuel: e.target.value })}
+                    className="admin-input font-bold"
+                  >
+                    <option value="بنزين">بنزين</option>
+                    <option value="ديزل">ديزل</option>
+                    <option value="كهرباء">كهرباء</option>
+                    <option value="هجين (هايبرد)">هجين (هايبرد)</option>
+                  </select>
+                </AdminField>
+              </div>
+            </div>
+          )}
+
+          {/* FOOD FIELDS */}
+          {productGroup === "food" && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <AdminField label="الوزن / الحجم">
+                <input
+                  type="text"
+                  placeholder="مثال: 1, 500, 250..."
+                  value={form.capacity_weight}
+                  onChange={(e) => setForm({ ...form, capacity_weight: e.target.value })}
+                  className="admin-input"
+                />
+              </AdminField>
+
+              <AdminField label="الوحدة">
+                <select
+                  value={form.food_unit}
+                  onChange={(e) => setForm({ ...form, food_unit: e.target.value })}
+                  className="admin-input font-bold"
+                >
+                  <option value="كجم">كجم</option>
+                  <option value="جرام">جرام</option>
+                  <option value="لتر">لتر</option>
+                  <option value="مليلتر">مليلتر</option>
+                  <option value="علبة">علبة</option>
+                  <option value="كرتونة">كرتونة</option>
+                  <option value="قطعة">قطعة</option>
+                </select>
+              </AdminField>
+
+              <AdminField label="تاريخ انتهاء الصلاحية">
+                <input
+                  type="text"
+                  placeholder="مثال: 12/2026"
+                  value={form.expiry_date}
+                  onChange={(e) => setForm({ ...form, expiry_date: e.target.value })}
+                  className="admin-input"
+                />
+              </AdminField>
+            </div>
+          )}
+
+          {/* FURNITURE FIELDS */}
+          {productGroup === "furniture" && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <AdminField label="الأبعاد (الطول × العرض × الارتفاع سم)">
+                <input
+                  type="text"
+                  placeholder="مثال: 200 × 160 × 80 سم"
+                  value={form.dimensions}
+                  onChange={(e) => setForm({ ...form, dimensions: e.target.value })}
+                  className="admin-input"
+                />
+              </AdminField>
+
+              <AdminField label="نوع الخشب / الخامة المصنوع منها">
+                <input
+                  type="text"
+                  placeholder="مثال: خشب زان أحمر, MDF, استيل..."
+                  value={form.material}
+                  onChange={(e) => setForm({ ...form, material: e.target.value })}
+                  className="admin-input"
+                />
+              </AdminField>
+            </div>
+          )}
+
+          {/* ELECTRONICS FIELDS */}
+          {productGroup === "electronics" && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <AdminField label="الماركة / العلامة التجارية">
+                  <input
+                    type="text"
+                    placeholder="مثال: سامسونج, أبل, توشيبا..."
+                    value={form.electronics_brand}
+                    onChange={(e) => setForm({ ...form, electronics_brand: e.target.value })}
+                    className="admin-input"
+                  />
+                </AdminField>
+
+                <AdminField label="الموديل / الرقم الفني">
+                  <input
+                    type="text"
+                    placeholder="مثال: Galaxy S24, M3..."
+                    value={form.electronics_model}
+                    onChange={(e) => setForm({ ...form, electronics_model: e.target.value })}
+                    className="admin-input"
+                  />
+                </AdminField>
+              </div>
+
+              <AdminField label="المواصفات الفنية الرئيسية">
+                <input
+                  type="text"
+                  placeholder="مثال: 256 جيجا ذاكرة, 12 جيجا رام, شاشة OLED..."
+                  value={form.electronics_specs}
+                  onChange={(e) => setForm({ ...form, electronics_specs: e.target.value })}
+                  className="admin-input"
+                />
+              </AdminField>
+            </div>
+          )}
+
+          {/* BOOKS FIELDS */}
+          {productGroup === "books" && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <AdminField label="اسم المؤلف / الكاتب">
+                <input
+                  type="text"
+                  placeholder="اسم المؤلف..."
+                  value={form.book_author}
+                  onChange={(e) => setForm({ ...form, book_author: e.target.value })}
+                  className="admin-input"
+                />
+              </AdminField>
+
+              <AdminField label="دار النشر">
+                <input
+                  type="text"
+                  placeholder="اسم دار النشر..."
+                  value={form.book_publisher}
+                  onChange={(e) => setForm({ ...form, book_publisher: e.target.value })}
+                  className="admin-input"
+                />
+              </AdminField>
+
+              <AdminField label="اللغة">
+                <select
+                  value={form.book_language}
+                  onChange={(e) => setForm({ ...form, book_language: e.target.value })}
+                  className="admin-input font-bold"
+                >
+                  <option value="العربية">العربية</option>
+                  <option value="الإنكليزية">الإنكليزية</option>
+                  <option value="الفرنسية">الفرنسية</option>
+                  <option value="أخرى">أخرى</option>
+                </select>
+              </AdminField>
+            </div>
+          )}
+
+          {/* GENERAL FIELDS */}
+          {productGroup === "general" && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <AdminField label="الألوان (اختياري - لون واحد أو عدة ألوان)">
+                <input
+                  type="text"
+                  placeholder="أسود, أبيض..."
+                  value={form.colors}
+                  onChange={(e) => setForm({ ...form, colors: e.target.value })}
+                  className="admin-input"
+                />
+              </AdminField>
+              <AdminField label="المقاسات / الخيارات (اختياري)">
+                <input
+                  type="text"
+                  placeholder="كبير, وسط, صغير..."
+                  value={form.sizes}
+                  onChange={(e) => setForm({ ...form, sizes: e.target.value })}
+                  className="admin-input"
+                />
+              </AdminField>
+            </div>
+          )}
         </div>
 
-        {/* Real Estate Area & Capacity/Weight Fields */}
-        <div className="grid grid-cols-2 gap-3">
-          <AdminField label="مساحة العقار / المكان (متر مربع m² - اختياري)">
-            <input
-              type="text"
-              placeholder="مثال: 150 م²"
-              value={form.area_sqm}
-              onChange={(e) => setForm({ ...form, area_sqm: e.target.value })}
-              className="admin-input"
-            />
-          </AdminField>
-          <AdminField label="الحمولة / الوزن / السعة (كجم - اختياري)">
-            <input
-              type="text"
-              placeholder="مثال: 7 كيلو أو 150 كجم"
-              value={form.capacity_weight}
-              onChange={(e) => setForm({ ...form, capacity_weight: e.target.value })}
-              className="admin-input"
-            />
-          </AdminField>
-        </div>
-
-        <div>
-          <AdminField label="رسوم الشحن/التوصيل (ج.م)">
-            <input
-              type="number"
-              min="0"
-              max="10000"
-              placeholder="مثال: 50 ج.م"
-              value={form.deliveryFee}
-              onChange={(e) => setForm({ ...form, deliveryFee: e.target.value })}
-              className="admin-input"
-            />
-          </AdminField>
-        </div>
-
-        {/* Premium Multi-Image management suite */}
+        {/* Gallery Upload */}
         <div className="space-y-1">
           <label className="text-xs font-bold text-brand-dark block">
-            معرض صور وتفاصيل المنتج:
+            معرض صور المنتج (تصفح أو اسحب وإسقاط):
           </label>
           <MultiImageUploader assets={galleryAssets} onChange={handleGalleryChange} />
         </div>
 
+        {/* Stock & Section Toggles */}
         <div className="space-y-2 pt-2">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <label className="flex items-center gap-2 text-xs font-bold text-brand-dark cursor-pointer bg-white p-2.5 rounded-xl border border-brand-dark/10">
               <input
                 type="checkbox"
@@ -905,17 +1476,25 @@ function ProductEditor({
               />
               متوفر بالمخزن
             </label>
-            <label className="flex items-center gap-2 text-xs font-bold text-amber-900 cursor-pointer bg-amber-50 p-2.5 rounded-xl border border-amber-200">
-              <input
-                type="checkbox"
-                checked={form.is_best_seller || form.featured}
-                onChange={(e) =>
-                  setForm({ ...form, is_best_seller: e.target.checked, featured: e.target.checked })
-                }
-                className="rounded border-amber-300 text-amber-600 focus:ring-amber-500 accent-amber-600"
-              />
-              يظهر في قائمة الأكثر مبيعاً بالرئيسية ⭐
-            </label>
+
+            {/* ONLY Super Admin can control homepage featuring! Hidden from Sellers! */}
+            {!isSeller && isRealAdmin && (
+              <label className="flex items-center gap-2 text-xs font-bold text-amber-900 cursor-pointer bg-amber-50 p-2.5 rounded-xl border border-amber-200">
+                <input
+                  type="checkbox"
+                  checked={form.is_best_seller || form.featured}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      is_best_seller: e.target.checked,
+                      featured: e.target.checked,
+                    })
+                  }
+                  className="rounded border-amber-300 text-amber-600 focus:ring-amber-500 accent-amber-600"
+                />
+                يظهر في قائمة الأكثر مبيعاً بالرئيسية ⭐ (خاص بالمدير العام)
+              </label>
+            )}
           </div>
 
           <label className="flex items-center gap-2 text-xs font-bold text-pink-700 bg-pink-50 p-2.5 rounded-xl border border-pink-200">
@@ -932,9 +1511,9 @@ function ProductEditor({
         <button
           type="submit"
           disabled={saving}
-          className="w-full bg-brand-dark hover:bg-brand-primary text-brand-bg font-bold py-3.5 rounded-xl disabled:opacity-60 mt-4 cursor-pointer text-xs"
+          className="w-full bg-brand-dark hover:bg-brand-primary text-brand-bg font-bold py-3.5 rounded-xl disabled:opacity-60 mt-4 cursor-pointer text-xs transition"
         >
-          {saving ? "جاري حفظ المنتج..." : "حفظ المنتج والألبوم المرفق"}
+          {saving ? "جاري حفظ بيانات المنتج..." : "حفظ المنتج والألبوم المرفق"}
         </button>
 
         <style>{`
@@ -944,11 +1523,13 @@ function ProductEditor({
             border: 1px solid oklch(0.9 0.015 70);
             border-radius: 12px;
             padding: 10px 14px;
-            font-size: 14px;
+            font-size: 13px;
             font-family: inherit;
             outline: none;
           }
-          .admin-input:focus { border-color: var(--brand-accent); }
+          .admin-input:focus {
+            border-color: #5C4033;
+          }
         `}</style>
       </form>
     </div>
@@ -966,33 +1547,31 @@ function AdminField({ label, children }: { label: string; children: React.ReactN
 
 // ---------- Categories ----------
 function CategoriesAdmin({ isSeller, sellerId }: { isSeller?: boolean; sellerId?: string }) {
-  const [cats, setCats] = useState<Category[]>([]);
+  const [allCategories, setAllCategories] = useState<CategoryNode[]>([]);
+  const [targetParentId, setTargetParentId] = useState<string | "root">("root");
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [loading, setLoading] = useState(true);
-  const [selectedCatForIcon, setSelectedCatForIcon] = useState<Category | null>(null);
+  const [selectedCatForIcon, setSelectedCatForIcon] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const [catRequests, setCatRequests] = useState(() => MarketplaceStore.getCategoryRequests());
+  const [quickSubInput, setQuickSubInput] = useState<Record<string, string>>({});
 
   const load = async () => {
     setLoading(true);
-    const { data } = await supabase.from("categories").select("*").order("sort_order");
-    let categoryList = (data as Category[]) ?? [];
-    if (categoryList.length === 0) {
-      categoryList = [
-        { id: "cat-1", name: "غرف معيشة", sort_order: 1 },
-        { id: "cat-2", name: "غرف نوم", sort_order: 2 },
-        { id: "cat-3", name: "طاولات طعام", sort_order: 3 },
-        { id: "cat-4", name: "ديكورات", sort_order: 4 },
-        { id: "cat-5", name: "أجهزة كهربائية", sort_order: 5 },
-      ];
-    }
-    setCats(categoryList);
+    const storeTree = MarketplaceStore.getCategories();
+    setAllCategories(storeTree);
     setCatRequests(MarketplaceStore.getCategoryRequests());
     setLoading(false);
   };
 
   useEffect(() => {
     load();
+    const handleUpdated = () => load();
+    window.addEventListener("beitak-categories-updated", handleUpdated);
+    return () => window.removeEventListener("beitak-categories-updated", handleUpdated);
   }, []);
 
   const add = async (e: React.FormEvent) => {
@@ -1000,12 +1579,17 @@ function CategoriesAdmin({ isSeller, sellerId }: { isSeller?: boolean; sellerId?
     if (!name.trim()) return;
 
     if (isSeller) {
-      // Seller sends a category request to Super Admin
       const activeSeller = MarketplaceStore.getSellers().find((s) => s.id === sellerId);
+      const parentCat = allCategories.find((c) => c.id === targetParentId);
+      const categoryNameWithParent =
+        targetParentId !== "root" && parentCat
+          ? `${name.trim()} (فرعي تحت: ${parentCat.name})`
+          : name.trim();
+
       MarketplaceStore.addCategoryRequest({
         sellerId: sellerId || "seller-habiba",
-        sellerName: activeSeller?.store_name || "متجر التاجر",
-        categoryName: name.trim(),
+        sellerName: activeSeller?.storeName || "متجر التاجر",
+        categoryName: categoryNameWithParent,
         description: desc.trim() || "طلب إضافة قسم مخصص جديد للمتجر",
         targetSection: "general",
       });
@@ -1017,31 +1601,78 @@ function CategoriesAdmin({ isSeller, sellerId }: { isSeller?: boolean; sellerId?
     }
 
     // Super Admin adds category directly
-    const nextOrder = (cats[cats.length - 1]?.sort_order ?? 0) + 1;
-    const { data, error } = await supabase
-      .from("categories")
-      .insert({ name: name.trim(), sort_order: nextOrder })
-      .select();
-    if (error) return toast.error("فشل الإضافة: " + error.message);
+    const parentId = targetParentId === "root" ? null : targetParentId;
+    const newCat = MarketplaceStore.addCategory({
+      name: name.trim(),
+      parentId,
+      slug: name.trim().toLowerCase().replace(/\s+/g, "-"),
+      sortOrder: allCategories.length + 1,
+    });
 
-    const addedCat = data?.[0] || { id: `cat-temp-${Date.now()}` };
-    const autoKey = getAutoIconKey(name);
-    saveCustomIconMapping(addedCat.id, autoKey);
-    saveCustomIconMapping(name.trim(), autoKey);
+    // Also sync to Supabase categories table
+    try {
+      await supabase
+        .from("categories")
+        .insert({ name: newCat.name, sort_order: allCategories.length + 1 });
+    } catch (e) {
+      console.warn("Could not sync category to Supabase categories table", e);
+    }
+
+    const autoKey = getAutoIconKey(newCat.name);
+    saveCustomIconMapping(newCat.id, autoKey);
+    saveCustomIconMapping(newCat.name, autoKey);
 
     setName("");
     setDesc("");
-    toast.success("تم إضافة القسم للكتالوج وتخصيص أيقونة تلقائياً له!");
+    toast.success(
+      parentId
+        ? `تم إضافة القسم الفرعي "${newCat.name}" وحفظه بنجاح!`
+        : `تم إضافة القسم الرئيسي "${newCat.name}" للكتالوج!`,
+    );
+    load();
+  };
+
+  const handleAddQuickSub = (mainCatId: string) => {
+    const val = (quickSubInput[mainCatId] || "").trim();
+    if (!val) return;
+    const newSub = MarketplaceStore.addCategory({
+      name: val,
+      parentId: mainCatId,
+      slug: val.toLowerCase().replace(/\s+/g, "-"),
+    });
+    setQuickSubInput((prev) => ({ ...prev, [mainCatId]: "" }));
+    toast.success(`تم إضافة القسم الفرعي "${newSub.name}" بنجاح!`);
     load();
   };
 
   const handleApproveRequest = async (reqId: string, categoryName: string) => {
     MarketplaceStore.updateCategoryRequestStatus(reqId, "approved");
-    const nextOrder = (cats[cats.length - 1]?.sort_order ?? 0) + 1;
-    await supabase.from("categories").insert({ name: categoryName, sort_order: nextOrder });
-    const autoKey = getAutoIconKey(categoryName);
-    saveCustomIconMapping(categoryName, autoKey);
-    toast.success(`تم قبول واعتماد قسم "${categoryName}" وإضافته للماركت بليس!`);
+    let parentId: string | null = null;
+    let cleanName = categoryName;
+
+    if (categoryName.includes("(فرعي تحت:")) {
+      const parts = categoryName.split("(فرعي تحت:");
+      cleanName = parts[0].trim();
+      const parentName = parts[1]?.replace(")", "").trim();
+      const matchedParent = allCategories.find(
+        (c) => c.name.includes(parentName) || parentName?.includes(c.name),
+      );
+      if (matchedParent) parentId = matchedParent.id;
+    }
+
+    MarketplaceStore.addCategory({
+      name: cleanName,
+      parentId,
+    });
+    try {
+      await supabase
+        .from("categories")
+        .insert({ name: cleanName, sort_order: allCategories.length + 1 });
+    } catch (e) {
+      console.warn("Failed syncing approved category to Supabase", e);
+    }
+
+    toast.success(`تم قبول واعتماد قسم "${cleanName}" وإضافته للماركت بليس!`);
     load();
   };
 
@@ -1051,22 +1682,22 @@ function CategoriesAdmin({ isSeller, sellerId }: { isSeller?: boolean; sellerId?
     setCatRequests(MarketplaceStore.getCategoryRequests());
   };
 
-  const rename = async (c: Category) => {
+  const rename = (c: CategoryNode) => {
     const val = prompt("اسم القسم الجديد", c.name);
     if (!val || val.trim() === c.name) return;
-    const { error } = await supabase.from("categories").update({ name: val.trim() }).eq("id", c.id);
-    if (error) return toast.error("فشل التعديل");
+    MarketplaceStore.updateCategory(c.id, { name: val.trim() });
+    toast.success("تم التحديث بنجاح");
     load();
   };
 
-  const del = async (c: Category) => {
-    const { error } = await supabase.from("categories").delete().eq("id", c.id);
-    if (error) return toast.error("فشل الحذف");
+  const del = (c: CategoryNode) => {
+    if (!confirm(`هل أنت تأكد من حذف القسم "${c.name}"؟`)) return;
+    MarketplaceStore.deleteCategory(c.id);
     toast.success("تم حذف القسم بنجاح");
     load();
   };
 
-  const selectIcon = (c: Category, iconKey: string) => {
+  const selectIcon = (c: { id: string; name: string }, iconKey: string) => {
     saveCustomIconMapping(c.id, iconKey);
     saveCustomIconMapping(c.name, iconKey);
     toast.success(`تم تحديث أيقونة القسم إلى: ${iconKey}`);
@@ -1074,38 +1705,84 @@ function CategoriesAdmin({ isSeller, sellerId }: { isSeller?: boolean; sellerId?
     load();
   };
 
+  const mainCategories = allCategories.filter((c) => !c.parentId);
+
   return (
     <div className="px-4 space-y-6" dir="rtl">
-      {/* Category Submission Form */}
-      <div className="bg-card border border-brand-dark/10 p-5 rounded-2xl space-y-3">
-        <h3 className="font-extrabold text-sm text-brand-dark">
-          {isSeller ? "إرسال طلب إضافة قسم جديد للسوبر أدمن" : "إضافة قسم رئيسي جديد للماركت بليس"}
+      {/* Category Submission / Creation Form */}
+      <div className="bg-card border border-brand-dark/10 p-5 rounded-2xl space-y-4">
+        <h3 className="font-extrabold text-sm text-brand-dark flex items-center justify-between">
+          <span>
+            {isSeller
+              ? "إرسال طلب إضافة قسم جديد للسوبر أدمن"
+              : "إضافة قسم رئيسي أو فرعي جديد للماركت بليس"}
+          </span>
+          {!isSeller && (
+            <span className="text-xs bg-brand-accent/20 text-brand-dark px-2.5 py-1 rounded-full font-bold">
+              إجمالي الأقسام: {allCategories.length}
+            </span>
+          )}
         </h3>
-        <form onSubmit={add} className="flex flex-col sm:flex-row gap-2">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="اسم القسم الجديد (مثال: مفارش وأغطية فاخرة)"
-            className="flex-1 bg-background border border-brand-dark/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-brand-accent"
-          />
+
+        <form onSubmit={add} className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div>
+              <label className="block text-xs font-bold text-muted-foreground mb-1">
+                نوع القسم *
+              </label>
+              <select
+                value={targetParentId}
+                onChange={(e) => setTargetParentId(e.target.value)}
+                className="w-full bg-background border border-brand-dark/10 rounded-xl px-3 py-2.5 text-xs font-bold outline-none focus:border-brand-accent"
+              >
+                <option value="root">📁 قسم رئيسي جديد (Root Category)</option>
+                {mainCategories.map((mc) => (
+                  <option key={mc.id} value={mc.id}>
+                    ↳ قسم فرعي تحت: {mc.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-bold text-muted-foreground mb-1">
+                اسم القسم *
+              </label>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={
+                  targetParentId === "root"
+                    ? "مثال: أثاث وديكور، إلكترونيات، مستلزمات طبية..."
+                    : "مثال: تيشرتات أوفر سايز، غرف نوم مودرن، شواحن سريعة..."
+                }
+                className="w-full bg-background border border-brand-dark/10 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:border-brand-accent"
+              />
+            </div>
+          </div>
+
           {isSeller && (
             <input
               value={desc}
               onChange={(e) => setDesc(e.target.value)}
               placeholder="وصف مختصر للقسم ومبرر الإضافة"
-              className="flex-1 bg-background border border-brand-dark/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-brand-accent"
+              className="w-full bg-background border border-brand-dark/10 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-brand-accent"
             />
           )}
-          <button
-            type="submit"
-            className="bg-brand-accent text-brand-dark font-black px-5 py-3 rounded-xl flex items-center justify-center gap-1.5 hover:bg-amber-500 transition cursor-pointer shrink-0"
-          >
-            <Plus className="w-4 h-4" /> {isSeller ? "إرسال الطلب" : "إضافة القسم"}
-          </button>
+
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              className="bg-brand-accent text-brand-dark font-black px-6 py-2.5 rounded-xl flex items-center justify-center gap-1.5 hover:bg-amber-500 transition cursor-pointer text-xs"
+            >
+              <Plus className="w-4 h-4" />{" "}
+              {isSeller ? "إرسال الطلب للسوبر أدمن" : "إضافة القسم وحفظه"}
+            </button>
+          </div>
         </form>
       </div>
 
-      {/* Pending Category Requests (Visible to Super Admin or Seller) */}
+      {/* Pending Category Requests */}
       {catRequests.length > 0 && (
         <div className="bg-amber-500/5 border border-amber-500/20 p-4 rounded-2xl space-y-3">
           <h4 className="font-extrabold text-xs text-amber-900 flex items-center gap-2">
@@ -1200,52 +1877,162 @@ function CategoriesAdmin({ isSeller, sellerId }: { isSeller?: boolean; sellerId?
         </div>
       )}
 
-      {loading && <p className="text-center text-sm text-muted-foreground py-8">جاري التحميل...</p>}
+      {/* Main Categories & Subcategories Hierarchy Tree */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between border-b pb-3">
+          <h4 className="font-extrabold text-sm text-brand-dark flex items-center gap-2">
+            <Layers className="w-4 h-4 text-brand-primary" />
+            دليل الأقسام التفاعلي (رئيسي وفرعي)
+          </h4>
+        </div>
 
-      <div className="space-y-2">
-        {cats.map((c) => {
-          const IconComponent = getCategoryIcon(c.id || c.name);
-          return (
-            <div
-              key={c.id}
-              className="bg-card rounded-2xl p-4 flex items-center justify-between border border-brand-dark/5 hover:border-brand-accent/30 transition duration-200"
-            >
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  title="تغيير الأيقونة"
-                  onClick={() => !isSeller && setSelectedCatForIcon(c)}
-                  className="w-10 h-10 rounded-xl bg-brand-primary/10 text-brand-primary hover:bg-brand-accent hover:text-brand-dark flex items-center justify-center transition"
+        {loading ? (
+          <p className="text-center text-sm text-muted-foreground py-8">جاري التحميل...</p>
+        ) : (
+          <div className="space-y-4">
+            {mainCategories.map((mc) => {
+              const subCats = allCategories.filter((c) => c.parentId === mc.id);
+              const MainIcon = getCategoryIcon(mc.id || mc.name);
+
+              return (
+                <div
+                  key={mc.id}
+                  className="bg-card border border-brand-dark/10 rounded-2xl p-4 space-y-3 shadow-xs hover:border-brand-accent/40 transition"
                 >
-                  <IconComponent className="w-5 h-5" />
-                </button>
-                <span className="font-bold text-sm">{c.name}</span>
-              </div>
-              {!isSeller && (
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => setSelectedCatForIcon(c)}
-                    className="text-xs text-brand-primary font-bold px-2 py-1 rounded hover:bg-brand-primary/5 transition"
-                  >
-                    تغيير الأيقونة
-                  </button>
-                  <button
-                    onClick={() => rename(c)}
-                    className="w-8 h-8 rounded-lg bg-secondary grid place-items-center hover:bg-secondary/80 transition"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => del(c)}
-                    className="w-8 h-8 rounded-lg bg-destructive/10 text-destructive grid place-items-center hover:bg-destructive/20 transition"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  {/* Main Category Header */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-brand-dark/5 pb-3">
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        title="تغيير الأيقونة"
+                        onClick={() =>
+                          !isSeller && setSelectedCatForIcon({ id: mc.id, name: mc.name })
+                        }
+                        className="w-10 h-10 rounded-xl bg-brand-primary/10 text-brand-primary hover:bg-brand-accent hover:text-brand-dark flex items-center justify-center transition cursor-pointer shrink-0"
+                      >
+                        <MainIcon className="w-5 h-5" />
+                      </button>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-sm text-brand-dark">{mc.name}</span>
+                          <span className="bg-brand-primary/10 text-brand-primary text-[10px] font-black px-2 py-0.5 rounded-full">
+                            قسم رئيسي
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          يحتوي على {subCats.length} قسم فرعي متاح
+                        </p>
+                      </div>
+                    </div>
+
+                    {!isSeller && (
+                      <div className="flex items-center gap-1.5 self-end sm:self-center">
+                        <button
+                          onClick={() => setSelectedCatForIcon({ id: mc.id, name: mc.name })}
+                          className="text-[11px] text-brand-primary font-bold px-2 py-1 rounded-lg hover:bg-brand-primary/10 transition"
+                        >
+                          أيقونة
+                        </button>
+                        <button
+                          onClick={() => rename(mc)}
+                          className="w-8 h-8 rounded-lg bg-secondary grid place-items-center hover:bg-secondary/80 transition"
+                          title="تعديل اسم القسم"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => del(mc)}
+                          className="w-8 h-8 rounded-lg bg-destructive/10 text-destructive grid place-items-center hover:bg-destructive/20 transition"
+                          title="حذف القسم"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Subcategories Grid */}
+                  <div className="space-y-2 pt-1">
+                    <div className="text-[11px] font-bold text-muted-foreground flex items-center gap-1">
+                      <span>الأقسام الفرعية التابعة لـ ({mc.name}):</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                      {subCats.map((sc) => {
+                        const SubIcon = getCategoryIcon(sc.id || sc.name);
+                        return (
+                          <div
+                            key={sc.id}
+                            className="bg-background border border-brand-dark/5 p-2.5 rounded-xl flex items-center justify-between gap-2 hover:border-brand-accent/50 transition"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <SubIcon className="w-3.5 h-3.5 text-brand-primary shrink-0" />
+                              <span className="text-xs font-bold text-brand-dark truncate">
+                                {sc.name}
+                              </span>
+                            </div>
+                            {!isSeller && (
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  onClick={() => rename(sc)}
+                                  className="text-muted-foreground hover:text-brand-dark p-1"
+                                  title="تعديل القسم الفرعي"
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                </button>
+                                <button
+                                  onClick={() => del(sc)}
+                                  className="text-destructive/80 hover:text-destructive p-1"
+                                  title="حذف القسم الفرعي"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      {subCats.length === 0 && (
+                        <p className="text-xs text-amber-800 bg-amber-50 p-2 rounded-xl col-span-full font-semibold">
+                          ⚠️ لا تتوفر أقسام فرعية مضافة تحت هذا القسم بعد.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Fast Inline Subcategory Creator */}
+                    {!isSeller && (
+                      <div className="pt-2 flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={quickSubInput[mc.id] || ""}
+                          onChange={(e) =>
+                            setQuickSubInput({ ...quickSubInput, [mc.id]: e.target.value })
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleAddQuickSub(mc.id);
+                            }
+                          }}
+                          placeholder={`إضافة قسم فرعي جديد سريعا لـ (${mc.name})...`}
+                          className="flex-1 bg-background border border-brand-dark/10 rounded-xl px-3 py-1.5 text-xs outline-none focus:border-brand-accent"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleAddQuickSub(mc.id)}
+                          className="bg-brand-primary text-white font-bold px-3 py-1.5 rounded-xl text-xs hover:bg-brand-dark transition cursor-pointer shrink-0 flex items-center gap-1"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> إضافة فرعي
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              )}
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2049,16 +2836,19 @@ function SettingsAdmin() {
             />
           </SetField>
 
-          <SetField label="نسبة العمولة الافتراضية للمنصة (%)">
+          <SetField label="نسبة العمولة الافتراضية للمنصة (من 0% إلى 20%)">
             <input
               type="number"
               value={billing.commissionRateDefault}
               onChange={(e) =>
-                setBilling({ ...billing, commissionRateDefault: Number(e.target.value) })
+                setBilling({
+                  ...billing,
+                  commissionRateDefault: Math.min(20, Math.max(0, Number(e.target.value) || 0)),
+                })
               }
               className="set-input"
               min={0}
-              max={100}
+              max={20}
             />
           </SetField>
 
@@ -2172,7 +2962,7 @@ function OrdersAdmin({ sellerId, isSeller }: { sellerId?: string; isSeller?: boo
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase
       .from("orders")
@@ -2198,11 +2988,11 @@ function OrdersAdmin({ sellerId, isSeller }: { sellerId?: string; isSeller?: boo
 
     setOrders(list);
     setLoading(false);
-  };
+  }, [isSeller, sellerId]);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   const updateStatus = async (id: string, status: string) => {
     const { error } = await supabase.from("orders").update({ status }).eq("id", id);
@@ -2489,7 +3279,7 @@ function FacebookAdmin() {
   const [busy, setBusy] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const [s, l] = await Promise.all([statusFn(), logsFn()]);
@@ -2500,11 +3290,11 @@ function FacebookAdmin() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [logsFn, statusFn]);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   const connect = async (e: React.FormEvent) => {
     e.preventDefault();

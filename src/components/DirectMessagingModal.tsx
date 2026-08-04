@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { MarketplaceStore, DirectConversation, DirectMessage } from "@/lib/marketplaceStore";
 import { MessageSquare, Send, Image, X, User, Store, Paperclip } from "lucide-react";
 import { toast } from "sonner";
@@ -25,7 +25,7 @@ export function DirectMessagingModal({
   const [attachmentUrl, setAttachmentUrl] = useState<string | undefined>(undefined);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const loadConvs = () => {
+  const loadConvs = useCallback(() => {
     const list = MarketplaceStore.getConversations();
     setConversations(list);
 
@@ -41,7 +41,7 @@ export function DirectMessagingModal({
     } else if (list.length > 0 && !activeConvId) {
       setActiveConvId(list[0].id);
     }
-  };
+  }, [activeConvId, productName, sellerId, sellerName]);
 
   useEffect(() => {
     if (isOpen) {
@@ -59,7 +59,7 @@ export function DirectMessagingModal({
       window.removeEventListener("beitak-messages-updated", handleUpdate);
       window.removeEventListener("storage", handleUpdate);
     };
-  }, [isOpen, sellerId, sellerName]);
+  }, [isOpen, loadConvs, activeConvId]);
 
   useEffect(() => {
     if (activeConvId) {

@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { PageShell } from "@/components/Layout";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { MarketplaceStore, SystemNotification } from "@/lib/marketplaceStore";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -29,12 +29,15 @@ export function NotificationsPage() {
   const [activeTab, setActiveTab] = useState<"all" | "order" | "message" | "announcement">("all");
   const [userId, setUserId] = useState<string | null>(null);
 
-  const loadNotifs = (uId?: string) => {
-    const targetId = uId || userId;
-    if (targetId) {
-      setNotifications(MarketplaceStore.getNotifications(targetId));
-    }
-  };
+  const loadNotifs = useCallback(
+    (uId?: string) => {
+      const targetId = uId || userId;
+      if (targetId) {
+        setNotifications(MarketplaceStore.getNotifications(targetId));
+      }
+    },
+    [userId],
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -61,7 +64,7 @@ export function NotificationsPage() {
       window.removeEventListener("beitak-notifications-updated", handleUpdate);
       window.removeEventListener("storage", handleUpdate);
     };
-  }, [navigate]);
+  }, [navigate, loadNotifs]);
 
   const filteredNotifs = notifications.filter((n) => {
     if (activeTab === "all") return true;

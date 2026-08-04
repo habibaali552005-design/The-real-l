@@ -99,10 +99,35 @@ export function ProductQuickViewModal({ product, onClose }: ProductQuickViewModa
   if (product.image_url) {
     rawGallery.push(product.image_url);
   }
+
+  const colorMap: Record<string, string> = {
+    ...(productMeta.image_color_map || {}),
+    ...(product.image_color_map || {}),
+  };
+
+  // Also include purchase options linked images
+  if (product.purchase_options) {
+    product.purchase_options.forEach((po) => {
+      if (po.value && po.image_url) {
+        colorMap[po.value] = po.image_url;
+      }
+    });
+  }
+
+  Object.values(colorMap).forEach((url) => {
+    if (url) rawGallery.push(url);
+  });
+
   // Deduplicate gallery images while preserving order
   const galleryImages: string[] = Array.from(new Set(rawGallery.filter(Boolean)));
 
-  const currentImage = galleryImages[activeImageIndex] || product.image_url || "";
+  const activeColorImage = selectedColor
+    ? colorMap[selectedColor]
+    : selectedOption
+      ? colorMap[selectedOption]
+      : null;
+  const currentImage =
+    activeColorImage || galleryImages[activeImageIndex] || product.image_url || "";
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const { left, top, width, height } = e.currentTarget.getBoundingClientRect();
@@ -138,9 +163,8 @@ export function ProductQuickViewModal({ product, onClose }: ProductQuickViewModa
     const nextColor = isSelected ? null : col;
     setSelectedColor(nextColor);
 
-    // If image color mapping exists, switch image index automatically
-    if (nextColor && product.image_color_map && product.image_color_map[nextColor]) {
-      const mappedUrl = product.image_color_map[nextColor];
+    if (nextColor && colorMap[nextColor]) {
+      const mappedUrl = colorMap[nextColor];
       const foundIdx = galleryImages.findIndex((img) => img === mappedUrl);
       if (foundIdx !== -1) {
         setActiveImageIndex(foundIdx);

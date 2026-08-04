@@ -94,34 +94,39 @@ const createWrappedAuth = (realAuth: any) => {
     }
   };
 
+  const getDeterministicUserId = (email: string) => {
+    if (!email) return "user-guest";
+    return `user-${email.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+  };
+
   const getLocalUsers = () => {
     if (typeof window === "undefined") return [];
     try {
       const stored = localStorage.getItem("local_registered_users");
       const users = stored ? JSON.parse(stored) : [];
 
-      // Pre-seed known admin accounts for the user (allowing password, 123456, or any other password)
+      // Pre-seed known admin accounts with stable, deterministic user IDs per email
       const defaultUsers = [
         {
-          id: "super-admin-habiba-1",
+          id: getDeterministicUserId("habibaali552005@gmail.com"),
           email: "habibaali552005@gmail.com",
           password: "password",
           name: "حبيبة علي",
         },
         {
-          id: "super-admin-habiba-2",
+          id: getDeterministicUserId("habibaali552005@gmail.com"),
           email: "habibaali552005@gmail.com",
           password: "123456",
           name: "حبيبة علي",
         },
         {
-          id: "super-admin-ali-1",
+          id: getDeterministicUserId("alihabiba109@gmail.com"),
           email: "alihabiba109@gmail.com",
           password: "password",
           name: "حبيبة",
         },
         {
-          id: "super-admin-ali-2",
+          id: getDeterministicUserId("alihabiba109@gmail.com"),
           email: "alihabiba109@gmail.com",
           password: "123456",
           name: "حبيبة",
@@ -132,7 +137,7 @@ const createWrappedAuth = (realAuth: any) => {
         if (
           !users.some(
             (u: any) =>
-              u.email.toLowerCase() === du.email.toLowerCase() && u.password === du.password,
+              u.email?.toLowerCase() === du.email.toLowerCase() && u.password === du.password,
           )
         ) {
           users.push(du);
@@ -149,10 +154,13 @@ const createWrappedAuth = (realAuth: any) => {
     if (typeof window === "undefined") return;
     try {
       const users = getLocalUsers();
-      if (!users.some((u: any) => u.email.toLowerCase() === user.email.toLowerCase())) {
+      const idx = users.findIndex((u: any) => u.email?.toLowerCase() === user.email?.toLowerCase());
+      if (idx !== -1) {
+        users[idx] = { ...users[idx], ...user };
+      } else {
         users.push(user);
-        localStorage.setItem("local_registered_users", JSON.stringify(users));
       }
+      localStorage.setItem("local_registered_users", JSON.stringify(users));
     } catch {}
   };
 
@@ -202,6 +210,7 @@ const createWrappedAuth = (realAuth: any) => {
     },
     async signInWithPassword({ email, password }: any) {
       try {
+        const stableId = getDeterministicUserId(email);
         // Try local storage authentication first.
         const localUsers = getLocalUsers();
         const matchedUser = localUsers.find(
@@ -210,9 +219,11 @@ const createWrappedAuth = (realAuth: any) => {
 
         if (matchedUser) {
           const mockUser = {
-            id: matchedUser.id || `local-user-${Date.now()}`,
+            id: matchedUser.id || stableId,
             email: matchedUser.email,
-            user_metadata: { full_name: matchedUser.name || "" },
+            user_metadata: matchedUser.user_metadata || {
+              full_name: matchedUser.name || matchedUser.email?.split("@")[0],
+            },
             created_at: new Date().toISOString(),
           };
           const mockSession = {
@@ -246,14 +257,25 @@ const createWrappedAuth = (realAuth: any) => {
           }
         }
 
-        // Auto login fallback for any account
+        // Auto login fallback for any account with stable deterministic user ID
+        const existingRecord = localUsers.find(
+          (u: any) => u.email?.toLowerCase() === email?.toLowerCase(),
+        );
         const autoUser = {
-          id: `user-${Date.now()}`,
+          id: existingRecord?.id || stableId,
           email: email,
-          user_metadata: { full_name: email ? email.split("@")[0] : "مستخدم بيتك" },
+          user_metadata: existingRecord?.user_metadata || {
+            full_name: existingRecord?.name || (email ? email.split("@")[0] : "مستخدم بيتك"),
+          },
           created_at: new Date().toISOString(),
         };
-        saveLocalUser({ id: autoUser.id, email, password, name: autoUser.user_metadata.full_name });
+        saveLocalUser({
+          id: autoUser.id,
+          email,
+          password,
+          name: autoUser.user_metadata.full_name,
+          user_metadata: autoUser.user_metadata,
+        });
         const autoSession = {
           access_token: "mock-token-" + Math.random(),
           token_type: "bearer",
@@ -288,14 +310,15 @@ const createWrappedAuth = (realAuth: any) => {
         }
       }
 
-      const userId = realResult?.data?.user?.id || `local-user-${Date.now()}`;
+      const userId = realResult?.data?.user?.id || getDeterministicUserId(email);
       const name = options?.data?.full_name || (email ? email.split("@")[0] : "مستخدم بيتك");
-      saveLocalUser({ id: userId, email, password, name });
+      const userMeta = options?.data || { full_name: name };
+      saveLocalUser({ id: userId, email, password, name, user_metadata: userMeta });
 
       const mockUser = {
         id: userId,
         email,
-        user_metadata: { full_name: name },
+        user_metadata: userMeta,
         created_at: new Date().toISOString(),
       };
       const mockSession = {
@@ -309,6 +332,46 @@ const createWrappedAuth = (realAuth: any) => {
       setVirtualSession(mockSession);
 
       return { data: { session: mockSession, user: mockUser }, error: null };
+    },
+    async updateUser(attributes: any) {
+      const vSession = getVirtualSession();
+      if (vSession && vSession.user) {
+        const newMeta = {
+          ...(vSession.user.user_metadata || {}),
+          ...(attributes.data || attributes.user_metadata || {}),
+        };
+        const updatedUser = {
+          ...vSession.user,
+          user_metadata: newMeta,
+        };
+        const updatedSession = {
+          ...vSession,
+          user: updatedUser,
+        };
+        setVirtualSession(updatedSession);
+
+        try {
+          const users = getLocalUsers();
+          const idx = users.findIndex(
+            (u: any) =>
+              u.email?.toLowerCase() === updatedUser.email?.toLowerCase() ||
+              u.id === updatedUser.id,
+          );
+          if (idx !== -1) {
+            users[idx].user_metadata = newMeta;
+            users[idx].name = newMeta.full_name || users[idx].name;
+            localStorage.setItem("local_registered_users", JSON.stringify(users));
+          }
+        } catch {}
+
+        return { data: { user: updatedUser }, error: null };
+      }
+      if (realAuth && typeof realAuth.updateUser === "function") {
+        try {
+          return await realAuth.updateUser(attributes);
+        } catch {}
+      }
+      return { data: { user: null }, error: null };
     },
     async signOut() {
       setVirtualSession(null);
@@ -332,10 +395,11 @@ const createWrappedAuth = (realAuth: any) => {
       }
 
       // Mock OAuth fallback
+      const uid = `google-user-${Date.now()}`;
       const mockUser = {
-        id: `google-user-${Date.now()}`,
-        email: "habibaali552005@gmail.com",
-        user_metadata: { full_name: "حبيبة علي" },
+        id: uid,
+        email: `user_${Date.now()}@beitak.eg`,
+        user_metadata: { full_name: "مستخدم بيتك" },
         created_at: new Date().toISOString(),
       };
       const mockSession = {
