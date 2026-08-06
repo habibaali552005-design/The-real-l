@@ -44,22 +44,28 @@ export function ProductReportModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-brand-dark/60 backdrop-blur-xs z-50 grid place-items-center p-4">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 bg-brand-dark/60 backdrop-blur-xs z-50 grid place-items-center p-4 cursor-pointer"
+    >
       <div
-        className="bg-card border border-brand-dark/15 rounded-3xl p-6 max-w-md w-full space-y-5 shadow-2xl animate-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+        className="bg-card border border-brand-dark/15 rounded-3xl p-6 max-w-md w-full space-y-5 shadow-2xl animate-in zoom-in-95 duration-150 cursor-default relative"
         dir="rtl"
       >
-        <div className="flex items-center justify-between border-b border-brand-dark/10 pb-3">
-          <div className="flex items-center gap-2 text-rose-600 font-black text-base">
-            <AlertTriangle className="w-5 h-5" />
+        <button
+          onClick={onClose}
+          className="absolute top-4 left-4 z-50 w-8 h-8 rounded-full bg-secondary hover:bg-brand-dark hover:text-white flex items-center justify-center text-brand-dark transition cursor-pointer border border-brand-dark/15 shadow-sm"
+          title="إغلاق"
+        >
+          <X className="w-4 h-4" />
+        </button>
+
+        <div className="flex items-center justify-between border-b border-brand-dark/10 pb-3 pl-10">
+          <div className="flex items-center gap-2 text-brand-primary font-black text-base">
+            <AlertTriangle className="w-5 h-5 text-brand-primary" />
             <span>الإبلاغ عن منتج مخالف</span>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-full text-muted-foreground hover:bg-secondary cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
         </div>
 
         <p className="text-xs text-muted-foreground leading-relaxed">

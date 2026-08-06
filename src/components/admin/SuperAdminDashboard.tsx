@@ -1578,7 +1578,7 @@ export function SuperAdminDashboard() {
                   required
                   value={newRoleName}
                   onChange={(e) => setNewRoleName(e.target.value)}
-                  placeholder="مثال: مدقق جودة المنتجات..."
+                  placeholder="اسم الدور الوظيفي..."
                   className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2.5 focus:outline-none"
                 />
               </div>
@@ -1874,7 +1874,7 @@ export function SuperAdminDashboard() {
                   required
                   value={newPlan.name}
                   onChange={(e) => setNewPlan({ ...newPlan, name: e.target.value })}
-                  placeholder="مثال: الباقة البلاتينية الفاخرة..."
+                  placeholder="اسم الباقة..."
                   className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2.5 focus:outline-none"
                 />
               </div>
@@ -1936,7 +1936,7 @@ export function SuperAdminDashboard() {
                   <input
                     value={newPlanFeature}
                     onChange={(e) => setNewPlanFeature(e.target.value)}
-                    placeholder="مثال: وصول 24/7 للدعم..."
+                    placeholder="وصف الميزة..."
                     className="flex-1 text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2 focus:outline-none"
                   />
                   <button

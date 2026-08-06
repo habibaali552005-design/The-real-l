@@ -5,8 +5,22 @@ import { PageShell } from "@/components/Layout";
 import { useCart, formatEGP } from "@/lib/cart";
 import { toast } from "sonner";
 import { getCategoryIcon } from "@/lib/category-icons";
-import { Plus, Truck, ShieldCheck, CreditCard, HeadphonesIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import {
+  Plus,
+  Truck,
+  ShieldCheck,
+  CreditCard,
+  HeadphonesIcon,
+  Sparkles,
+  Heart,
+  Search,
+  Flame,
+  Star,
+  SlidersHorizontal,
+  Layers,
+  ShoppingBag,
+} from "lucide-react";
+import { useEffect, useState, useMemo } from "react";
 import { MarketplaceStore } from "@/lib/marketplaceStore";
 import { ProductQuickViewModal } from "@/components/ProductQuickViewModal";
 import { Product, isWomenProduct } from "@/types";
@@ -15,27 +29,29 @@ import { LiveText, LiveCustomSectionsContainer } from "@/components/LiveEditSyst
 const homeQuery = {
   queryKey: ["home"],
   queryFn: async () => {
-    const [{ data: featured }, { data: latest }, { data: cats }] = await Promise.all([
-      supabase.from("products").select("*").eq("featured", true).limit(12),
-      supabase.from("products").select("*").order("created_at", { ascending: false }).limit(12),
-      supabase.from("categories").select("*").order("sort_order"),
-    ]);
-    let categoryList = (cats ?? []) as { id: string; name: string; icon?: string }[];
-    categoryList = MarketplaceStore.filterDeletedCategories(categoryList);
-    if (categoryList.length === 0) {
-      const rootCats = MarketplaceStore.getCategories().filter((c) => !c.parentId);
-      categoryList = rootCats.map((c) => ({ id: c.id, name: c.name, icon: c.icon }));
-    }
+    const [{ data: featured }, { data: latest }, { data: allProds }, { data: cats }] =
+      await Promise.all([
+        supabase.from("products").select("*").eq("featured", true).limit(16),
+        supabase.from("products").select("*").order("created_at", { ascending: false }).limit(16),
+        supabase.from("products").select("*").order("created_at", { ascending: false }).limit(80),
+        supabase.from("categories").select("*").order("sort_order"),
+      ]);
+    const rootCats = MarketplaceStore.getCategories().filter((c) => !c.parentId);
+    const categoryList = rootCats.map((c) => ({ id: c.id, name: c.name, icon: c.icon }));
     const customMap = MarketplaceStore.getCustomProducts();
+
     let featList = (featured ?? []) as Product[];
     let lateList = (latest ?? []) as Product[];
+    let allList = (allProds ?? []) as Product[];
 
     featList = featList.map((p) => (customMap[p.id] ? { ...p, ...customMap[p.id] } : p));
     lateList = lateList.map((p) => (customMap[p.id] ? { ...p, ...customMap[p.id] } : p));
+    allList = allList.map((p) => (customMap[p.id] ? { ...p, ...customMap[p.id] } : p));
 
     return {
       featured: MarketplaceStore.filterDeletedProducts(featList),
       latest: MarketplaceStore.filterDeletedProducts(lateList),
+      allProducts: MarketplaceStore.filterDeletedProducts(allList),
       categories: categoryList,
     };
   },
@@ -48,13 +64,13 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "بيتك: منصتك المصرية لشراء الأثاث والأجهزة الكهربائية والسيارات والعقارات بأسعار مناسبة وشحن لكل المحافظات.",
+          "بيتك: منصتك المصرية لشراء الأثاث والأجهزة الكهربائية والسيارات والعقارات والملابس بأسعار مناسبة وشحن لكل المحافظات.",
       },
       { property: "og:title", content: "بيتك" },
       {
         property: "og:description",
         content:
-          "بيتك: منصتك المصرية لشراء الأثاث والأجهزة الكهربائية والسيارات والعقارات بأسعار مناسبة وشحن لكل المحافظات.",
+          "بيتك: منصتك المصرية لشراء الأثاث والأجهزة الكهربائية والسيارات والعقارات والملابس بأسعار مناسبة وشحن لكل المحافظات.",
       },
       { property: "og:type", content: "website" },
     ],
@@ -75,6 +91,7 @@ function Home() {
   const { add } = useCart();
   const rawFeatured = data.featured || [];
   const rawLatest = data.latest || [];
+  const rawAllProducts = data.allProducts || [];
   const categories = data.categories || [];
 
   // Include Women Lounge products in main home page feed ONLY for female users
@@ -83,12 +100,121 @@ function Home() {
 
   const featured = rawFeatured.filter((p) => isFemale || !isWomenProduct(p));
   const latest = rawLatest.filter((p) => isFemale || !isWomenProduct(p));
+  const allProducts = rawAllProducts.filter((p) => isFemale || !isWomenProduct(p));
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [forYouTab, setForYouTab] = useState<"all" | "favorites" | "search" | "trending">("all");
+  const [marketplaceCategory, setMarketplaceCategory] = useState<string>("all");
 
   const [themeConf, setThemeConf] = useState(() => MarketplaceStore.getSiteThemeSettings());
-
   const queryClient = useQueryClient();
+
+  // User activity signals for "For You Page" recommendations
+  const favIds = MarketplaceStore.getFavorites();
+  const searchHistory = MarketplaceStore.getSearchHistory();
+  const searchQueries = searchHistory.map((s) => s.query.toLowerCase());
+  const recentlyViewedIds = MarketplaceStore.getRecentlyViewed();
+
+  const userHasHistory =
+    favIds.length > 0 || searchQueries.length > 0 || recentlyViewedIds.length > 0;
+
+  // Personalized recommendation engine logic
+  const recommendedScored = useMemo(() => {
+    const favProds = allProducts.filter((p) => favIds.includes(p.id));
+    const viewedProds = allProducts.filter((p) => recentlyViewedIds.includes(p.id));
+
+    const favCats = new Set([
+      ...favProds.map((p) => p.category),
+      ...viewedProds.map((p) => p.category),
+    ]);
+    const favSubCats = new Set([
+      ...favProds.map((p) => p.sub_category).filter(Boolean),
+      ...viewedProds.map((p) => p.sub_category).filter(Boolean),
+    ]);
+    const favBrands = new Set([
+      ...favProds.map((p) => p.brand).filter(Boolean),
+      ...viewedProds.map((p) => p.brand).filter(Boolean),
+    ]);
+
+    return allProducts
+      .map((p) => {
+        let score = 0;
+        let matchReason: "favorites" | "search" | "trending" = "trending";
+
+        // Direct match with favorites or recently viewed
+        if (favIds.includes(p.id)) {
+          score += 30;
+          matchReason = "favorites";
+        } else if (recentlyViewedIds.includes(p.id)) {
+          score += 20;
+          matchReason = "favorites";
+        }
+
+        // Category/Subcategory match
+        if (favCats.has(p.category)) {
+          score += 15;
+          if (matchReason === "trending") matchReason = "favorites";
+        }
+        if (p.sub_category && favSubCats.has(p.sub_category)) {
+          score += 12;
+          if (matchReason === "trending") matchReason = "favorites";
+        }
+
+        // Brand match
+        if (p.brand && favBrands.has(p.brand)) {
+          score += 10;
+        }
+
+        // Search query keyword match
+        if (searchQueries.length > 0) {
+          const fullText =
+            `${p.name} ${p.category} ${p.sub_category || ""} ${p.description || ""}`.toLowerCase();
+          for (const q of searchQueries) {
+            if (q && fullText.includes(q)) {
+              score += 25;
+              matchReason = "search";
+              break;
+            }
+          }
+        }
+
+        // High quality ratings & featured bonus
+        if (p.featured) score += 5;
+        if (p.rating && p.rating >= 4.5) score += 5;
+
+        return { product: p, score, matchReason };
+      })
+      .sort((a, b) => b.score - a.score);
+  }, [allProducts, favIds, searchQueries, recentlyViewedIds]);
+
+  const filteredForYou = useMemo(() => {
+    if (forYouTab === "favorites") {
+      const list = recommendedScored.filter((item) => item.matchReason === "favorites");
+      return list.length > 0
+        ? list.map((i) => i.product)
+        : recommendedScored.slice(0, 12).map((i) => i.product);
+    }
+    if (forYouTab === "search") {
+      const list = recommendedScored.filter((item) => item.matchReason === "search");
+      return list.length > 0
+        ? list.map((i) => i.product)
+        : recommendedScored.slice(0, 12).map((i) => i.product);
+    }
+    if (forYouTab === "trending") {
+      return [...allProducts].sort((a, b) => (b.rating || 0) - (a.rating || 0)).slice(0, 12);
+    }
+    return recommendedScored.slice(0, 18).map((i) => i.product);
+  }, [forYouTab, recommendedScored, allProducts]);
+
+  const filteredMarketplace = useMemo(() => {
+    if (marketplaceCategory === "all") return allProducts;
+    return allProducts.filter(
+      (p) =>
+        p.category === marketplaceCategory ||
+        p.sub_category === marketplaceCategory ||
+        (p.main_category && p.main_category === marketplaceCategory),
+    );
+  }, [allProducts, marketplaceCategory]);
 
   useEffect(() => {
     setThemeConf(MarketplaceStore.getSiteThemeSettings());
@@ -107,7 +233,16 @@ function Home() {
   }, [queryClient]);
 
   const sectionsOrder = (
-    themeConf.homepageSections || ["hero", "trust", "categories", "featured", "latest", "cta"]
+    themeConf.homepageSections || [
+      "hero",
+      "trust",
+      "categories",
+      "for_you",
+      "featured",
+      "latest",
+      "marketplace",
+      "cta",
+    ]
   ).filter((s) => s !== "vertical_banners");
   const hidden = themeConf.hiddenSections || [];
 
@@ -142,7 +277,7 @@ function Home() {
                     id="bannerSubtitle"
                     defaultText={
                       themeConf.bannerSubtitle ||
-                      "أثاث، أجهزة كهربائية، سيارات، وعقارات — بيع وشراء بأمان مع بيتك."
+                      "أثاث، أجهزة كهربائية، أزياء، سيارات، وعقارات — تسوق بسهولة وأمان."
                     }
                     multiline
                   />
@@ -238,8 +373,87 @@ function Home() {
             </div>
           </section>
         );
-      case "vertical_banners":
-        return null;
+      case "for_you":
+        return (
+          <section key="for_you" className="px-4 py-6 max-w-[1550px] mx-auto w-full">
+            <div className="bg-brand-bg/80 border border-brand-primary/15 rounded-3xl p-5 md:p-6 space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-brand-dark/10 pb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="p-1.5 rounded-xl bg-brand-primary/10 text-brand-primary">
+                      <Sparkles className="w-5 h-5 text-brand-primary" />
+                    </span>
+                    <h2
+                      className="text-xl md:text-2xl font-extrabold"
+                      style={{ color: themeConf.homepageText }}
+                    >
+                      قسم مُقترحة لأجلك
+                    </h2>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {userHasHistory
+                      ? "منتجات جرى اختيارها وتحديثها تلقائياً بناءً على مفضلاتك وبحثك الأخير واهتماماتك."
+                      : "تشكيلة رائعة ومختارة خصيصاً للمستكشفين الجدد بمتجر بيتك."}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+                  <button
+                    onClick={() => setForYouTab("all")}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                      forYouTab === "all"
+                        ? "bg-brand-dark text-brand-bg shadow-sm"
+                        : "bg-card border border-brand-dark/10 text-brand-dark hover:bg-brand-accent/20"
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-brand-primary" /> الكل المقترح
+                  </button>
+                  <button
+                    onClick={() => setForYouTab("favorites")}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                      forYouTab === "favorites"
+                        ? "bg-brand-dark text-brand-bg shadow-sm"
+                        : "bg-card border border-brand-dark/10 text-brand-dark hover:bg-brand-accent/20"
+                    }`}
+                  >
+                    <Heart className="w-3.5 h-3.5 text-brand-primary" /> حسب المفضلة
+                  </button>
+                  <button
+                    onClick={() => setForYouTab("search")}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                      forYouTab === "search"
+                        ? "bg-brand-dark text-brand-bg shadow-sm"
+                        : "bg-card border border-brand-dark/10 text-brand-dark hover:bg-brand-accent/20"
+                    }`}
+                  >
+                    <Search className="w-3.5 h-3.5 text-brand-primary" /> نتائج البحث الأخيرة
+                  </button>
+                  <button
+                    onClick={() => setForYouTab("trending")}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                      forYouTab === "trending"
+                        ? "bg-brand-dark text-brand-bg shadow-sm"
+                        : "bg-card border border-brand-dark/10 text-brand-dark hover:bg-brand-accent/20"
+                    }`}
+                  >
+                    <Flame className="w-3.5 h-3.5 text-brand-primary" /> الأعلى تقييماً
+                  </button>
+                </div>
+              </div>
+
+              <ProductGrid
+                products={filteredForYou}
+                cardBg={themeConf.homepageCard}
+                textColor={themeConf.homepageText}
+                onSelect={(p) => setSelectedProduct(p)}
+                onAdd={(p) => {
+                  toast.info("يرجى تحديد اللون والنقاش/المقاس لتأكيد طلبك قبل الإضافة للسلة");
+                  setSelectedProduct(p);
+                }}
+              />
+            </div>
+          </section>
+        );
       case "featured":
         if (featured.length === 0) return null;
         return (
@@ -295,6 +509,63 @@ function Home() {
                 setSelectedProduct(p);
               }}
             />
+          </section>
+        );
+      case "marketplace":
+        return (
+          <section key="marketplace" className="px-4 py-6 max-w-[1550px] mx-auto w-full">
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-brand-dark/10 pb-3">
+                <div>
+                  <h2
+                    className="text-xl md:text-2xl font-bold flex items-center gap-2"
+                    style={{ color: themeConf.homepageText }}
+                  >
+                    <ShoppingBag className="w-6 h-6 text-brand-primary" />
+                    تصفح كنز منتجات السوق
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    استكشف كل المنتجات المتوفرة بجميع الأقسام بأسعار تنافسية
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+                  <button
+                    onClick={() => setMarketplaceCategory("all")}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                      marketplaceCategory === "all"
+                        ? "bg-brand-primary text-white"
+                        : "bg-card border border-brand-dark/10 hover:bg-brand-primary/10"
+                    }`}
+                  >
+                    جميع الأقسام
+                  </button>
+                  {categories.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => setMarketplaceCategory(c.name)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                        marketplaceCategory === c.name
+                          ? "bg-brand-primary text-white"
+                          : "bg-card border border-brand-dark/10 hover:bg-brand-primary/10"
+                      }`}
+                    >
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <ProductGrid
+                products={filteredMarketplace.slice(0, 24)}
+                cardBg={themeConf.homepageCard}
+                textColor={themeConf.homepageText}
+                onSelect={(p) => setSelectedProduct(p)}
+                onAdd={(p) => {
+                  toast.info("يرجى تحديد اللون والنقاش/المقاس لتأكيد طلبك قبل الإضافة للسلة");
+                  setSelectedProduct(p);
+                }}
+              />
+            </div>
           </section>
         );
       case "cta":

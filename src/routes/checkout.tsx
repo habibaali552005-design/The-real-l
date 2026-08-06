@@ -911,7 +911,7 @@ export function CheckoutPage() {
                 rows={2}
                 value={form.notes}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                placeholder="مثال: يرجى الاتصال قبل الوصول بساعة على الأقل"
+                placeholder="ملاحظات أو توجيهات للمندوب..."
                 className="input text-right"
               />
             </Field>

@@ -335,14 +335,11 @@ export function CategoriesPage() {
                       <div className="flex items-start justify-between gap-3">
                         <div
                           onClick={() => {
-                            if (
-                              cat.id === "cat-women" ||
-                              cat.slug === "women" ||
-                              cat.name.includes("نساء")
-                            ) {
-                              navigate({ to: "/women" });
-                            } else {
+                            const hasChildren = categories.some((c) => c.parentId === cat.id);
+                            if (hasChildren) {
                               setSelectedCatId(cat.id);
+                            } else {
+                              navigate({ to: "/products", search: { category: cat.name } });
                             }
                           }}
                           className="flex items-center gap-3 cursor-pointer flex-1"
@@ -427,8 +424,14 @@ export function CategoriesPage() {
 
         {/* Modal: Add Category / Subcategory */}
         {isAddModalOpen && (
-          <div className="fixed inset-0 bg-brand-dark/60 backdrop-blur-xs z-50 grid place-items-center p-4">
-            <div className="bg-card border border-brand-dark/15 rounded-3xl p-6 max-w-lg w-full space-y-5 shadow-2xl animate-in fade-in zoom-in duration-150">
+          <div
+            onClick={() => setIsAddModalOpen(false)}
+            className="fixed inset-0 bg-brand-dark/60 backdrop-blur-xs z-50 grid place-items-center p-4 cursor-pointer"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="bg-card border border-brand-dark/15 rounded-3xl p-6 max-w-lg w-full space-y-5 shadow-2xl animate-in fade-in zoom-in duration-150 cursor-default"
+            >
               <div className="flex items-center justify-between border-b border-brand-dark/10 pb-3">
                 <h3 className="font-black text-lg text-brand-dark flex items-center gap-2">
                   <FolderPlus className="w-5 h-5 text-brand-primary" />
@@ -452,7 +455,7 @@ export function CategoriesPage() {
                     required
                     value={newCatName}
                     onChange={(e) => setNewCatName(e.target.value)}
-                    placeholder="مثال: فساتين سهرة، أحذية نسائية، ملابس رجالي..."
+                    placeholder="فساتين سهرة، أحذية نسائية، ملابس رجالي..."
                     className="w-full bg-white border border-brand-dark/20 rounded-2xl px-4 py-3 outline-none focus:border-brand-primary font-bold text-sm"
                   />
                 </div>

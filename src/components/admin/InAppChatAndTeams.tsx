@@ -558,7 +558,7 @@ export function InAppChatAndTeams({
                 <label className="text-[10px] font-bold text-brand-dark block">اسم الفريق</label>
                 <input
                   type="text"
-                  placeholder="مثال: فريق الجودة ومتابعة التركيب"
+                  placeholder="فريق الجودة ومتابعة الشحن"
                   value={newTeamName}
                   onChange={(e) => setNewTeamName(e.target.value)}
                   className="w-full text-xs bg-brand-bg border border-brand-dark/10 rounded-xl px-3 py-2.5 focus:outline-none"
@@ -589,7 +589,7 @@ export function InAppChatAndTeams({
                   />
                   <input
                     type="text"
-                    placeholder="الدور (مثال: نجار)"
+                    placeholder="الدور الوظيفي"
                     value={newMemberRole}
                     onChange={(e) => setNewMemberRole(e.target.value)}
                     className="flex-1 text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-1.5 focus:outline-none"

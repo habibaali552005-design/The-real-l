@@ -1490,11 +1490,14 @@ export function ProductManagementSystem({
                           </div>
 
                           <div className="flex flex-wrap items-center gap-3">
-                            {/* Option Specific Image Linking */}
-                            <div className="flex items-center gap-1.5 bg-stone-50 px-2 py-1 rounded-lg border border-stone-200">
+                            {/* Option Specific Image Linking & Upload */}
+                            <div className="flex items-center gap-1.5 bg-stone-50 px-2.5 py-1.5 rounded-lg border border-stone-200">
                               <ImageIcon className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                              <span className="text-[11px] font-bold text-stone-600">الصورة:</span>
-                              {formImages.length > 0 ? (
+                              <span className="text-[11px] font-bold text-stone-600">
+                                الصورة المرتبطة:
+                              </span>
+
+                              {formImages.length > 0 && (
                                 <select
                                   value={po.image_url || ""}
                                   onChange={(e) => {
@@ -1505,9 +1508,9 @@ export function ProductManagementSystem({
                                       ),
                                     );
                                   }}
-                                  className="bg-white border border-stone-300 rounded text-[11px] font-bold px-2 py-0.5 text-stone-800"
+                                  className="bg-white border border-stone-300 rounded text-[11px] font-bold px-2 py-1 text-stone-800"
                                 >
-                                  <option value="">-- اختر من معرض المنتج --</option>
+                                  <option value="">-- اختر من صور المنتج --</option>
                                   {formImages.map((img, imgIdx) => (
                                     <option key={imgIdx} value={img}>
                                       صورة #{imgIdx + 1}{" "}
@@ -1515,27 +1518,61 @@ export function ProductManagementSystem({
                                     </option>
                                   ))}
                                 </select>
-                              ) : (
-                                <input
-                                  type="url"
-                                  placeholder="رابط الصورة..."
-                                  value={po.image_url || ""}
-                                  onChange={(e) => {
-                                    const url = e.target.value;
-                                    setFormPurchaseOptions((prev) =>
-                                      prev.map((item, i) =>
-                                        i === idx ? { ...item, image_url: url } : item,
-                                      ),
-                                    );
-                                  }}
-                                  className="w-36 bg-white border border-stone-300 rounded text-[11px] font-bold px-2 py-0.5"
-                                />
                               )}
+
+                              <input
+                                type="url"
+                                placeholder="رابط مباشر..."
+                                value={po.image_url || ""}
+                                onChange={(e) => {
+                                  const url = e.target.value;
+                                  setFormPurchaseOptions((prev) =>
+                                    prev.map((item, i) =>
+                                      i === idx ? { ...item, image_url: url } : item,
+                                    ),
+                                  );
+                                }}
+                                className="w-32 bg-white border border-stone-300 rounded text-[11px] font-bold px-2 py-1"
+                              />
+
+                              <label className="bg-amber-600 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg cursor-pointer hover:bg-amber-700 transition shrink-0 flex items-center gap-1">
+                                <Upload className="w-3 h-3" />
+                                <span>رفع صورة</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                      const reader = new FileReader();
+                                      reader.onload = (evt) => {
+                                        if (evt.target?.result) {
+                                          const resUrl = evt.target.result as string;
+                                          // Set for this option
+                                          setFormPurchaseOptions((prev) =>
+                                            prev.map((item, i) =>
+                                              i === idx ? { ...item, image_url: resUrl } : item,
+                                            ),
+                                          );
+                                          // Also add to product main images if not present
+                                          if (!formImages.includes(resUrl)) {
+                                            setFormImages((prev) => [...prev, resUrl]);
+                                          }
+                                          toast.success(`تم رفع صورة الخيار (${po.value}) بنجاح!`);
+                                        }
+                                      };
+                                      reader.readAsDataURL(file);
+                                    }
+                                  }}
+                                />
+                              </label>
+
                               {po.image_url && (
                                 <img
                                   src={po.image_url}
-                                  alt="Variant"
-                                  className="w-6 h-6 object-cover rounded border"
+                                  alt={po.value}
+                                  className="w-7 h-7 object-cover rounded-md border border-stone-300 shadow-xs"
                                 />
                               )}
                             </div>
@@ -1793,7 +1830,7 @@ export function ProductManagementSystem({
               </label>
               <input
                 type="text"
-                placeholder="اسم القسم (مثال: معدات رياضية ولياقة)"
+                placeholder="اسم القسم"
                 value={newMainCatName}
                 onChange={(e) => setNewMainCatName(e.target.value)}
                 className="w-full p-3 bg-stone-50 border border-stone-300 rounded-xl text-sm font-bold text-stone-800"
@@ -1932,7 +1969,7 @@ export function ProductManagementSystem({
               <label className="block text-xs font-bold text-stone-700">القيمة المطلوبة:</label>
               <input
                 type="text"
-                placeholder="مثال: أزرق بتيل فاخر، 120 سم، خشب زان"
+                placeholder="القيمة المطلوبة"
                 value={newOptionValue}
                 onChange={(e) => setNewOptionValue(e.target.value)}
                 className="w-full p-3 bg-stone-50 border border-stone-300 rounded-xl text-sm font-bold text-stone-800"

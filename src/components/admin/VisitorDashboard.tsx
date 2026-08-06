@@ -108,7 +108,7 @@ export function VisitorDashboard() {
               required
               value={storeName}
               onChange={(e) => setStoreName(e.target.value)}
-              placeholder="مثال: موبيليات الشرق، ركن التصاميم الأنيقة..."
+              placeholder="اسم المتجر أو العلامة التجارية..."
               className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-1 focus:ring-brand-accent"
             />
           </div>

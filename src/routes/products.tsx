@@ -69,6 +69,36 @@ function getCategoryFamilyNames(activeCat: string, categoryTree: CategoryNode[])
   return family;
 }
 
+function matchesCategoryFamily(p: Product, family: Set<string>): boolean {
+  if (!family || family.size === 0) return true;
+  const pCat = (p.category || "").trim();
+  const pMain = (p.main_category || "").trim();
+  const pSub = (p.sub_category || "").trim();
+
+  if (family.has(pCat) || family.has(pCat.toLowerCase())) return true;
+  if (pMain && (family.has(pMain) || family.has(pMain.toLowerCase()))) return true;
+  if (pSub && (family.has(pSub) || family.has(pSub.toLowerCase()))) return true;
+
+  const parts = pCat.split(">").map((s) => s.trim().toLowerCase());
+  for (const part of parts) {
+    if (family.has(part)) return true;
+  }
+
+  for (const fam of family) {
+    const famLower = fam.toLowerCase();
+    if (
+      famLower.length > 1 &&
+      (pCat.toLowerCase().includes(famLower) ||
+        pMain.toLowerCase().includes(famLower) ||
+        pSub.toLowerCase().includes(famLower))
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function getCategoryProductCount(
   catNameOrId: string,
   categoryTree: CategoryNode[],
@@ -76,10 +106,7 @@ function getCategoryProductCount(
 ): number {
   if (catNameOrId === "الكل") return allProducts.length;
   const family = getCategoryFamilyNames(catNameOrId, categoryTree);
-  return allProducts.filter((p) => {
-    const pCat = (p.category || "").trim();
-    return family.has(pCat) || family.has(pCat.toLowerCase());
-  }).length;
+  return allProducts.filter((p) => matchesCategoryFamily(p, family)).length;
 }
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
@@ -267,13 +294,31 @@ function ProductsPage() {
     new Set(products.flatMap((p) => p.colors || []).filter(Boolean)),
   );
 
+  // Gender & Women-only visibility rule check
+  const currentUser = MarketplaceStore.getCurrentUser();
+  const isFemaleUser = currentUser?.gender === "female";
+
   // Filter Logic
   let filtered = products.filter((p) => {
-    if (activeCatFamily) {
-      const pCat = (p.category || "").trim();
-      if (!activeCatFamily.has(pCat) && !activeCatFamily.has(pCat.toLowerCase())) {
-        return false;
-      }
+    // Women-only products restriction: Only visible to female accounts, unless explicitly browsing a women's category
+    const isWomenOnly = p.for_women_only || p.sub_category === "النساء" || isWomenProduct(p);
+    const isExplicitlyBrowsingWomen =
+      Boolean(activeCat) &&
+      (activeCat.includes("نساء") ||
+        activeCat.includes("حريمي") ||
+        activeCat.includes("بنات") ||
+        activeCat.includes("فساتين") ||
+        activeCat.includes("عبايات") ||
+        activeCat.includes("مكياج") ||
+        activeCat.includes("تجميل") ||
+        activeCat.toLowerCase() === "women");
+
+    if (isWomenOnly && !isFemaleUser && !isExplicitlyBrowsingWomen) {
+      return false;
+    }
+
+    if (activeCatFamily && !matchesCategoryFamily(p, activeCatFamily)) {
+      return false;
     }
     if (selectedBrand !== "الكل" && p.brand !== selectedBrand) return false;
     if (query) {
@@ -1068,18 +1113,25 @@ function ProductsPage() {
       {/* Mobile Filters Drawer */}
       {mobileFiltersOpen && (
         <div
-          className="fixed inset-0 z-50 bg-brand-dark/80 backdrop-blur-xs lg:hidden flex justify-end"
+          onClick={() => setMobileFiltersOpen(false)}
+          className="fixed inset-0 z-50 bg-brand-dark/80 backdrop-blur-xs lg:hidden flex justify-end cursor-pointer"
           dir="rtl"
         >
-          <div className="bg-brand-bg w-full max-w-xs h-full p-6 overflow-y-auto space-y-6 flex flex-col justify-between">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-card w-full max-w-xs h-full p-6 overflow-y-auto space-y-6 flex flex-col justify-between cursor-default shadow-2xl border-l border-brand-dark/10"
+          >
             <div className="space-y-4">
-              <div className="flex justify-between items-center border-b border-brand-dark/5 pb-3">
+              <div className="flex justify-between items-center border-b border-brand-dark/10 pb-3">
                 <h3 className="font-bold text-sm text-brand-dark flex items-center gap-2">
                   <Filter className="w-4 h-4 text-brand-primary" />
                   خيارات التصفية
                 </h3>
-                <button onClick={() => setMobileFiltersOpen(false)}>
-                  <X className="w-5 h-5 text-brand-dark" />
+                <button
+                  onClick={() => setMobileFiltersOpen(false)}
+                  className="w-8 h-8 rounded-full bg-secondary hover:bg-destructive/15 text-brand-dark hover:text-destructive flex items-center justify-center transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
                 </button>
               </div>
               <SidebarContent />

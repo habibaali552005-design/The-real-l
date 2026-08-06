@@ -15,6 +15,10 @@ import {
   Type,
   ArrowUp,
   ArrowDown,
+  Palette,
+  Image,
+  Sliders,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -473,6 +477,7 @@ export function LiveEditAdminBar() {
   const { active, toggleLiveEdit } = useLiveEditMode();
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedEl, setSelectedEl] = useState<SelectedDomElement | null>(null);
+  const [isPickingElement, setIsPickingElement] = useState(false);
 
   // Inspector form states
   const [editVal, setEditVal] = useState("");
@@ -496,8 +501,71 @@ export function LiveEditAdminBar() {
   const [secBtnUrl, setSecBtnUrl] = useState("/products");
   const [secBgColor, setSecBgColor] = useState("bg-[#1C1613] text-[#F8F5EE] border-[#D2B48C]");
 
+  // Direct Theme Customizer Modal States
+  const [showThemeModal, setShowThemeModal] = useState(false);
+  const [themeTab, setThemeTab] = useState<"hero" | "font" | "pattern" | "colors">("hero");
+  const [themeHeroBg, setThemeHeroBg] = useState("");
+  const [themeHeroTitle, setThemeHeroTitle] = useState("");
+  const [themeHeroSub, setThemeHeroSub] = useState("");
+  const [themeHeroCta, setThemeHeroCta] = useState("");
+  const [themeFont, setThemeFont] = useState("Cairo");
+  const [themePattern, setThemePattern] = useState("none");
+  const [themePrimaryColor, setThemePrimaryColor] = useState("#5C4033");
+  const [themeDarkColor, setThemeDarkColor] = useState("#1C1613");
+  const [themeAccentColor, setThemeAccentColor] = useState("#D2B48C");
+  const [themeBgColor, setThemeBgColor] = useState("#F8F5EE");
+
+  const openThemeCustomizer = () => {
+    const settings = MarketplaceStore.getSiteThemeSettings();
+    setThemeHeroBg(
+      settings.bannerUrl ||
+        "https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?w=1600&h=900&fit=crop",
+    );
+    setThemeHeroTitle(settings.bannerTitle || "كل اللي بيتك محتاجه في مكان واحد");
+    setThemeHeroSub(
+      settings.bannerSubtitle || "أثاث، أجهزة كهربائية، سيارات، وعقارات — بيع وشراء بأمان مع بيتك.",
+    );
+    setThemeHeroCta(settings.bannerCtaText || "تسوق الآن");
+    setThemeFont(settings.primaryFont || "Cairo");
+    setThemePattern(settings.patternStyle || "none");
+    setThemePrimaryColor(settings.homepagePrimary || settings.brandPrimary || "#5C4033");
+    setThemeDarkColor(settings.brandDark || "#1C1613");
+    setThemeAccentColor(settings.homepageAccent || settings.brandAccent || "#D2B48C");
+    setThemeBgColor(settings.homepageBg || settings.brandBg || "#F8F5EE");
+    setShowThemeModal(true);
+  };
+
+  const handleSaveThemeCustomization = (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const currentSettings = MarketplaceStore.getSiteThemeSettings();
+      const updated = {
+        ...currentSettings,
+        bannerUrl: themeHeroBg,
+        bannerTitle: themeHeroTitle,
+        bannerSubtitle: themeHeroSub,
+        bannerCtaText: themeHeroCta,
+        primaryFont: themeFont,
+        patternStyle: themePattern,
+        homepagePrimary: themePrimaryColor,
+        brandPrimary: themePrimaryColor,
+        brandDark: themeDarkColor,
+        homepageAccent: themeAccentColor,
+        brandAccent: themeAccentColor,
+        homepageBg: themeBgColor,
+        brandBg: themeBgColor,
+      };
+      MarketplaceStore.saveSiteThemeSettings(updated);
+      window.dispatchEvent(new Event("beitak-theme-updated"));
+      toast.success("تم حفظ المظهر، الخطوط، الخلفية، والألوان بنجاح لكل زوار الموقع!");
+      setShowThemeModal(false);
+    } catch {
+      toast.error("حدث خطأ أثناء حفظ التعديلات");
+    }
+  };
+
   useEffect(() => {
-    if (!active || !canEdit) {
+    if (!active || !canEdit || !isPickingElement) {
       setSelectedEl(null);
       return;
     }
@@ -506,8 +574,9 @@ export function LiveEditAdminBar() {
       const target = e.target as HTMLElement | null;
       if (!target) return;
 
-      // Ignore if clicking inside live edit toolbar, floating modals, or section controls
+      // STRICT ISOLATION: Completely ignore any element inside the live edit bar or modals!
       if (
+        target.closest('[data-live-edit-ui="true"]') ||
         target.closest("#live-edit-admin-bar") ||
         target.closest("#live-edit-modal") ||
         target.closest("#live-edit-inspector") ||
@@ -582,11 +651,12 @@ export function LiveEditAdminBar() {
       setObjectFitVal(currentObjectFit);
       setRotateVal(0);
       setScaleVal(1);
+      setIsPickingElement(false);
     };
 
     window.addEventListener("click", handleGlobalClick, true);
     return () => window.removeEventListener("click", handleGlobalClick, true);
-  }, [active, canEdit]);
+  }, [active, canEdit, isPickingElement]);
 
   const handleApplyDomEdits = () => {
     if (!selectedEl?.node) return;
@@ -742,10 +812,17 @@ export function LiveEditAdminBar() {
       {/* Floating Toggle Button */}
       <div
         id="live-edit-admin-bar"
-        className="fixed bottom-5 left-5 z-[9999] flex items-center gap-2"
+        data-live-edit-ui="true"
+        className="fixed bottom-5 right-5 z-[9999] flex items-center gap-2"
       >
         <button
-          onClick={toggleLiveEdit}
+          onClick={() => {
+            if (active) {
+              setIsPickingElement(false);
+              setSelectedEl(null);
+            }
+            toggleLiveEdit();
+          }}
           className={`flex items-center gap-2 px-5 py-3 rounded-full font-black text-xs shadow-2xl border transition cursor-pointer ${
             active
               ? "bg-brand-dark text-brand-accent border-brand-accent ring-2 ring-brand-accent/50"
@@ -757,14 +834,38 @@ export function LiveEditAdminBar() {
         </button>
 
         {active && (
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 bg-brand-accent hover:bg-amber-500 text-brand-dark font-black text-xs px-4 py-3 rounded-full shadow-2xl border border-brand-accent/40 transition cursor-pointer"
-            title="إضافة عنصر أو بنر جديد للموقع"
-          >
-            <Plus className="w-4 h-4" />
-            <span>إضافة قسم</span>
-          </button>
+          <>
+            <button
+              onClick={() => setIsPickingElement(!isPickingElement)}
+              className={`flex items-center gap-1.5 font-black text-xs px-4 py-3 rounded-full shadow-2xl border transition cursor-pointer ${
+                isPickingElement
+                  ? "bg-amber-500 text-stone-950 border-amber-300 ring-2 ring-amber-400/80 animate-pulse"
+                  : "bg-stone-800 hover:bg-stone-700 text-amber-200 border-amber-500/40"
+              }`}
+              title="تحديد عنصر مباشر بالموقع لتعديله"
+            >
+              <Edit3 className="w-4 h-4" />
+              <span>
+                {isPickingElement ? "أداة التحديد مفعلة (انقر أي عنصر)" : "تحديد عنصر للتعديل"}
+              </span>
+            </button>
+            <button
+              onClick={openThemeCustomizer}
+              className="flex items-center gap-1.5 bg-purple-700 hover:bg-purple-800 text-white font-black text-xs px-4 py-3 rounded-full shadow-2xl border border-purple-400/40 transition cursor-pointer"
+              title="تعديل المظهر والخطوط والخلفيات والألوان مباشرة"
+            >
+              <Palette className="w-4 h-4 text-amber-300" />
+              <span>المظهر والخطوط</span>
+            </button>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-1.5 bg-brand-accent hover:bg-amber-500 text-brand-dark font-black text-xs px-4 py-3 rounded-full shadow-2xl border border-brand-accent/40 transition cursor-pointer"
+              title="إضافة عنصر أو بنر جديد للموقع"
+            >
+              <Plus className="w-4 h-4" />
+              <span>إضافة قسم</span>
+            </button>
+          </>
         )}
       </div>
 
@@ -772,17 +873,35 @@ export function LiveEditAdminBar() {
       {active && (
         <div
           id="live-edit-admin-bar"
+          data-live-edit-ui="true"
           className="bg-brand-dark text-brand-bg py-3 px-5 text-xs font-bold sticky top-0 z-[9998] shadow-xl border-b border-brand-accent/20 flex items-center justify-between"
           dir="rtl"
         >
           <div className="flex items-center gap-3">
             <span className="w-2.5 h-2.5 rounded-full bg-brand-accent animate-pulse" />
             <span className="font-black text-brand-accent text-sm">وضع التعديل المباشر</span>
-            <span className="text-[11px] text-brand-bg/80 bg-brand-bg/10 border border-brand-accent/20 px-3 py-1 rounded-full hidden sm:inline">
-              اضغط على أي نص، عنوان، زر، أو أيقونة بالموقع لتعديلها أو تكبيرها فوراً
-            </span>
+            <button
+              onClick={() => setIsPickingElement(!isPickingElement)}
+              className={`text-[11px] font-black px-3 py-1 rounded-full border transition cursor-pointer ${
+                isPickingElement
+                  ? "bg-amber-400 text-stone-900 border-amber-200 shadow-sm"
+                  : "bg-brand-bg/10 text-brand-bg/90 border-brand-accent/30 hover:bg-brand-bg/20"
+              }`}
+            >
+              {isPickingElement
+                ? "🎯 أداة التحديد مفعلة (انقر على أي عنصر للتعديل)"
+                : "👉 انقر هنا لتفعيل تحديد العناصر على الصفحة"}
+            </button>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={openThemeCustomizer}
+              className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-xl font-bold text-[11px] cursor-pointer transition border border-purple-400/30 flex items-center gap-1"
+              title="تخصيص المظهر والخلفيات والخطوط والألوان"
+            >
+              <Palette className="w-3.5 h-3.5 text-amber-300" />
+              المظهر والخطوط
+            </button>
             <button
               onClick={() => setShowAddModal(true)}
               className="bg-brand-accent hover:bg-amber-500 text-brand-dark px-3.5 py-1.5 rounded-xl font-black text-xs shadow flex items-center gap-1 cursor-pointer transition"
@@ -800,6 +919,7 @@ export function LiveEditAdminBar() {
             <button
               onClick={() => {
                 toast.success("تم حفظ واعتماد كافة التعديلات بنجاح لكل زوار الموقع");
+                setIsPickingElement(false);
                 toggleLiveEdit();
               }}
               className="bg-brand-accent hover:bg-amber-500 text-brand-dark px-4 py-1.5 rounded-xl font-black text-xs shadow flex items-center gap-1.5 cursor-pointer transition"
@@ -808,7 +928,10 @@ export function LiveEditAdminBar() {
               حفظ واعتماد التعديل
             </button>
             <button
-              onClick={toggleLiveEdit}
+              onClick={() => {
+                setIsPickingElement(false);
+                toggleLiveEdit();
+              }}
               className="bg-stone-800 hover:bg-stone-700 text-stone-300 p-1.5 rounded-lg cursor-pointer transition"
               title="إغلاق"
             >
@@ -818,234 +941,242 @@ export function LiveEditAdminBar() {
         </div>
       )}
 
-      {/* DOM Element Live Inspector Modal / Floating Panel */}
+      {/* DOM Element Live Inspector Modal / Floating Panel with Outside Click Backdrop */}
       {selectedEl && active && (
         <div
-          id="live-edit-inspector"
-          className="fixed z-[10001] bg-[#1C1613] text-[#F8F5EE] border-2 border-[#D2B48C] rounded-3xl p-5 shadow-2xl w-96 max-w-[92vw] animate-scaleIn space-y-4 max-h-[85vh] overflow-y-auto"
-          style={{
-            top: Math.min(window.innerHeight - 450, Math.max(20, selectedEl.rect.bottom + 10)),
-            left: Math.min(window.innerWidth - 400, Math.max(20, selectedEl.rect.left)),
-          }}
-          dir="rtl"
+          data-live-edit-ui="true"
+          className="fixed inset-0 z-[10000] bg-black/40 backdrop-blur-2xs flex items-center justify-center p-3"
+          onClick={() => setSelectedEl(null)}
         >
-          <div className="flex items-center justify-between border-b border-[#5C4033] pb-2.5">
-            <span className="text-xs font-black text-[#D2B48C] flex items-center gap-1.5">
-              <Type className="w-4 h-4 text-[#D2B48C]" />
-              {selectedEl.isImage
-                ? "تعديل الصورة المباشرة"
-                : selectedEl.isIcon
-                  ? "تعديل الأيقونة المباشرة"
-                  : "تعديل العنصر والنص المباشر"}
-            </span>
-            <button
-              onClick={() => setSelectedEl(null)}
-              className="text-stone-400 hover:text-white p-1 cursor-pointer rounded-lg hover:bg-stone-800"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+          <div
+            id="live-edit-inspector"
+            data-live-edit-ui="true"
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#1C1613] text-[#F8F5EE] border-2 border-[#D2B48C] rounded-3xl p-5 shadow-2xl w-96 max-w-[92vw] animate-scaleIn space-y-4 max-h-[85vh] overflow-y-auto"
+            dir="rtl"
+          >
+            <div className="flex items-center justify-between border-b border-[#5C4033] pb-2.5">
+              <span className="text-xs font-black text-[#D2B48C] flex items-center gap-1.5">
+                <Type className="w-4 h-4 text-[#D2B48C]" />
+                {selectedEl.isImage
+                  ? "تعديل الصورة المباشرة"
+                  : selectedEl.isIcon
+                    ? "تعديل الأيقونة المباشرة"
+                    : "تعديل العنصر والنص المباشر"}
+              </span>
+              <button
+                onClick={() => setSelectedEl(null)}
+                className="text-stone-400 hover:text-white p-1 cursor-pointer rounded-lg hover:bg-stone-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-          {/* Image Source Editing */}
-          {selectedEl.isImage && (
-            <div className="space-y-2 bg-[#2A211C] p-3 rounded-2xl border border-[#D2B48C]/30">
-              <label className="text-[11px] font-bold text-[#D2B48C] block">
-                رابط الصورة (Image URL / Source):
-              </label>
-              <input
-                type="text"
-                value={imgSrcVal}
-                onChange={(e) => setImgSrcVal(e.target.value)}
-                placeholder="https://..."
-                className="w-full bg-white text-[#1C1613] font-mono text-[11px] font-bold p-2 rounded-xl outline-none border border-[#D2B48C]"
-              />
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <div>
-                  <label className="text-[10px] font-bold text-stone-300 block mb-1">
-                    طريقة العرض (Fit):
-                  </label>
-                  <select
-                    value={objectFitVal}
-                    onChange={(e) => setObjectFitVal(e.target.value)}
-                    className="w-full bg-[#5C4033] text-[#F8F5EE] text-[11px] font-bold p-1.5 rounded-xl border border-[#D2B48C]/40 outline-none"
-                  >
-                    <option value="cover">غلاف كامل (Cover)</option>
-                    <option value="contain">احتواء بدون قص (Contain)</option>
-                    <option value="fill">تعبئة المساحة (Fill)</option>
-                  </select>
+            {/* Image Source Editing */}
+            {selectedEl.isImage && (
+              <div className="space-y-2 bg-[#2A211C] p-3 rounded-2xl border border-[#D2B48C]/30">
+                <label className="text-[11px] font-bold text-[#D2B48C] block">
+                  رابط الصورة (Image URL / Source):
+                </label>
+                <input
+                  type="text"
+                  value={imgSrcVal}
+                  onChange={(e) => setImgSrcVal(e.target.value)}
+                  placeholder="https://..."
+                  className="w-full bg-white text-[#1C1613] font-mono text-[11px] font-bold p-2 rounded-xl outline-none border border-[#D2B48C]"
+                />
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <div>
+                    <label className="text-[10px] font-bold text-stone-300 block mb-1">
+                      طريقة العرض (Fit):
+                    </label>
+                    <select
+                      value={objectFitVal}
+                      onChange={(e) => setObjectFitVal(e.target.value)}
+                      className="w-full bg-[#5C4033] text-[#F8F5EE] text-[11px] font-bold p-1.5 rounded-xl border border-[#D2B48C]/40 outline-none"
+                    >
+                      <option value="cover">غلاف كامل (Cover)</option>
+                      <option value="contain">احتواء بدون قص (Contain)</option>
+                      <option value="fill">تعبئة المساحة (Fill)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-stone-300 block mb-1">
+                      العرض الذكي:
+                    </label>
+                    <select
+                      value={widthVal}
+                      onChange={(e) => setWidthVal(e.target.value)}
+                      className="w-full bg-[#5C4033] text-[#F8F5EE] text-[11px] font-bold p-1.5 rounded-xl border border-[#D2B48C]/40 outline-none"
+                    >
+                      <option value="">تلقائي</option>
+                      <option value="100%">كامل العرض (100%)</option>
+                      <option value="300px">متوسط (300px)</option>
+                      <option value="150px">صغير (150px)</option>
+                      <option value="60px">صغير جداً (60px)</option>
+                    </select>
+                  </div>
                 </div>
+              </div>
+            )}
+
+            {/* Text Content Editing for non-image elements */}
+            {!selectedEl.isImage && (
+              <div className="space-y-2">
+                <label className="text-[11px] font-bold text-stone-300 block">
+                  النص / المحتوى المباشر:
+                </label>
+                <textarea
+                  value={editVal}
+                  onChange={(e) => setEditVal(e.target.value)}
+                  className="w-full bg-white text-[#1C1613] font-bold text-xs p-2.5 rounded-xl outline-none border border-[#D2B48C] h-16 resize-y"
+                />
+              </div>
+            )}
+
+            {/* Typography & Dimensions Controls */}
+            <div className="grid grid-cols-2 gap-2">
+              {!selectedEl.isImage && (
                 <div>
                   <label className="text-[10px] font-bold text-stone-300 block mb-1">
-                    العرض الذكي:
+                    حجم الخط:
                   </label>
                   <select
-                    value={widthVal}
-                    onChange={(e) => setWidthVal(e.target.value)}
+                    value={fontSizeVal}
+                    onChange={(e) => setFontSizeVal(e.target.value)}
                     className="w-full bg-[#5C4033] text-[#F8F5EE] text-[11px] font-bold p-1.5 rounded-xl border border-[#D2B48C]/40 outline-none"
                   >
                     <option value="">تلقائي</option>
-                    <option value="100%">كامل العرض (100%)</option>
-                    <option value="300px">متوسط (300px)</option>
-                    <option value="150px">صغير (150px)</option>
-                    <option value="60px">صغير جداً (60px)</option>
+                    <option value="11px">صغير جداً (11px)</option>
+                    <option value="13px">صغير (13px)</option>
+                    <option value="15px">متوسط (15px)</option>
+                    <option value="18px">كبير (18px)</option>
+                    <option value="22px">كبير جداً (22px)</option>
+                    <option value="28px">عنوان ضخم (28px)</option>
                   </select>
+                </div>
+              )}
+
+              {!selectedEl.isImage && (
+                <div>
+                  <label className="text-[10px] font-bold text-stone-300 block mb-1">
+                    سمك الخط:
+                  </label>
+                  <select
+                    value={fontWeightVal}
+                    onChange={(e) => setFontWeightVal(e.target.value)}
+                    className="w-full bg-[#5C4033] text-[#F8F5EE] text-[11px] font-bold p-1.5 rounded-xl border border-[#D2B48C]/40 outline-none"
+                  >
+                    <option value="">تلقائي</option>
+                    <option value="400">عادي (Normal)</option>
+                    <option value="600">متوسط (Medium)</option>
+                    <option value="700">عريض (Bold)</option>
+                    <option value="900">عريض جداً (Black)</option>
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="text-[10px] font-bold text-stone-300 block mb-1">
+                  شكل الحواف (Radius):
+                </label>
+                <select
+                  value={borderRadiusVal}
+                  onChange={(e) => setBorderRadiusVal(e.target.value)}
+                  className="w-full bg-[#5C4033] text-[#F8F5EE] text-[11px] font-bold p-1.5 rounded-xl border border-[#D2B48C]/40 outline-none"
+                >
+                  <option value="">تلقائي</option>
+                  <option value="0px">حادة (0px)</option>
+                  <option value="8px">منحنية خفيفة (8px)</option>
+                  <option value="16px">دائرية أنيقة (16px)</option>
+                  <option value="24px">دائرية جداً (24px)</option>
+                  <option value="9999px">كبسولة / دائرة كاملة</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-stone-300 block mb-1">
+                  التكبير / الحجم:
+                </label>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setScaleVal((prev) => Math.max(0.5, prev - 0.1))}
+                    className="bg-[#5C4033] text-white p-1.5 rounded-lg text-xs hover:bg-[#D2B48C] hover:text-[#1C1613] font-bold cursor-pointer"
+                    title="تصغير"
+                  >
+                    <ZoomOut className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="text-xs font-black text-[#D2B48C] flex-1 text-center">
+                    {(scaleVal * 100).toFixed(0)}%
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setScaleVal((prev) => Math.min(2.5, prev + 0.1))}
+                    className="bg-[#5C4033] text-white p-1.5 rounded-lg text-xs hover:bg-[#D2B48C] hover:text-[#1C1613] font-bold cursor-pointer"
+                    title="تكبير"
+                  >
+                    <ZoomIn className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
             </div>
-          )}
 
-          {/* Text Content Editing for non-image elements */}
-          {!selectedEl.isImage && (
-            <div className="space-y-2">
-              <label className="text-[11px] font-bold text-stone-300 block">
-                النص / المحتوى المباشر:
+            {/* Color palette pickers */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-stone-300 block">
+                تغيير اللون المباشر:
               </label>
-              <textarea
-                value={editVal}
-                onChange={(e) => setEditVal(e.target.value)}
-                className="w-full bg-white text-[#1C1613] font-bold text-xs p-2.5 rounded-xl outline-none border border-[#D2B48C] h-16 resize-y"
-              />
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {[
+                  { name: "ذهبي بيتك", color: "#D2B48C" },
+                  { name: "بني دافئ", color: "#5C4033" },
+                  { name: "أسود داكن", color: "#1C1613" },
+                  { name: "أبيض ناصع", color: "#FFFFFF" },
+                  { name: "أخضر نجاح", color: "#16a34a" },
+                  { name: "تنبيه أحمر", color: "#dc2626" },
+                ].map((c, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      if (selectedEl.isIcon) {
+                        setTextColorVal(c.color);
+                      } else {
+                        setTextColorVal(c.color);
+                      }
+                    }}
+                    className="w-6 h-6 rounded-full border-2 border-white/50 shadow hover:scale-110 transition cursor-pointer"
+                    style={{ backgroundColor: c.color }}
+                    title={c.name}
+                  />
+                ))}
+              </div>
             </div>
-          )}
 
-          {/* Typography & Dimensions Controls */}
-          <div className="grid grid-cols-2 gap-2">
-            {!selectedEl.isImage && (
-              <div>
-                <label className="text-[10px] font-bold text-stone-300 block mb-1">حجم الخط:</label>
-                <select
-                  value={fontSizeVal}
-                  onChange={(e) => setFontSizeVal(e.target.value)}
-                  className="w-full bg-[#5C4033] text-[#F8F5EE] text-[11px] font-bold p-1.5 rounded-xl border border-[#D2B48C]/40 outline-none"
-                >
-                  <option value="">تلقائي</option>
-                  <option value="11px">صغير جداً (11px)</option>
-                  <option value="13px">صغير (13px)</option>
-                  <option value="15px">متوسط (15px)</option>
-                  <option value="18px">كبير (18px)</option>
-                  <option value="22px">كبير جداً (22px)</option>
-                  <option value="28px">عنوان ضخم (28px)</option>
-                </select>
-              </div>
-            )}
-
-            {!selectedEl.isImage && (
-              <div>
-                <label className="text-[10px] font-bold text-stone-300 block mb-1">سمك الخط:</label>
-                <select
-                  value={fontWeightVal}
-                  onChange={(e) => setFontWeightVal(e.target.value)}
-                  className="w-full bg-[#5C4033] text-[#F8F5EE] text-[11px] font-bold p-1.5 rounded-xl border border-[#D2B48C]/40 outline-none"
-                >
-                  <option value="">تلقائي</option>
-                  <option value="400">عادي (Normal)</option>
-                  <option value="600">متوسط (Medium)</option>
-                  <option value="700">عريض (Bold)</option>
-                  <option value="900">عريض جداً (Black)</option>
-                </select>
-              </div>
-            )}
-
-            <div>
-              <label className="text-[10px] font-bold text-stone-300 block mb-1">
-                شكل الحواف (Radius):
-              </label>
-              <select
-                value={borderRadiusVal}
-                onChange={(e) => setBorderRadiusVal(e.target.value)}
-                className="w-full bg-[#5C4033] text-[#F8F5EE] text-[11px] font-bold p-1.5 rounded-xl border border-[#D2B48C]/40 outline-none"
+            {/* Action Buttons */}
+            <div className="flex gap-2 pt-2 border-t border-[#5C4033]">
+              <button
+                onClick={handleApplyDomEdits}
+                className="flex-1 bg-[#D2B48C] text-[#1C1613] font-black py-2.5 rounded-xl text-xs hover:bg-[#c5a378] transition cursor-pointer shadow"
               >
-                <option value="">تلقائي</option>
-                <option value="0px">حادة (0px)</option>
-                <option value="8px">منحنية خفيفة (8px)</option>
-                <option value="16px">دائرية أنيقة (16px)</option>
-                <option value="24px">دائرية جداً (24px)</option>
-                <option value="9999px">كبسولة / دائرة كاملة</option>
-              </select>
+                تطبيق وحفظ التغيير
+              </button>
+              <button
+                onClick={handleDeleteSelectedElement}
+                className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-3 py-2.5 rounded-xl text-xs cursor-pointer flex items-center gap-1"
+                title="حذف هذا العنصر نهائياً"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                حذف
+              </button>
+              <button
+                onClick={() => setSelectedEl(null)}
+                className="bg-[#5C4033] text-white font-bold px-3 py-2.5 rounded-xl text-xs cursor-pointer"
+              >
+                إلغاء
+              </button>
             </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-stone-300 block mb-1">
-                التكبير / الحجم:
-              </label>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setScaleVal((prev) => Math.max(0.5, prev - 0.1))}
-                  className="bg-[#5C4033] text-white p-1.5 rounded-lg text-xs hover:bg-[#D2B48C] hover:text-[#1C1613] font-bold cursor-pointer"
-                  title="تصغير"
-                >
-                  <ZoomOut className="w-3.5 h-3.5" />
-                </button>
-                <span className="text-xs font-black text-[#D2B48C] flex-1 text-center">
-                  {(scaleVal * 100).toFixed(0)}%
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setScaleVal((prev) => Math.min(2.5, prev + 0.1))}
-                  className="bg-[#5C4033] text-white p-1.5 rounded-lg text-xs hover:bg-[#D2B48C] hover:text-[#1C1613] font-bold cursor-pointer"
-                  title="تكبير"
-                >
-                  <ZoomIn className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Color palette pickers */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-stone-300 block">
-              تغيير اللون المباشر:
-            </label>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {[
-                { name: "ذهبي بيتك", color: "#D2B48C" },
-                { name: "بني دافئ", color: "#5C4033" },
-                { name: "أسود داكن", color: "#1C1613" },
-                { name: "أبيض ناصع", color: "#FFFFFF" },
-                { name: "أخضر نجاح", color: "#16a34a" },
-                { name: "تنبيه أحمر", color: "#dc2626" },
-              ].map((c, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => {
-                    if (selectedEl.isIcon) {
-                      setTextColorVal(c.color);
-                    } else {
-                      setTextColorVal(c.color);
-                    }
-                  }}
-                  className="w-6 h-6 rounded-full border-2 border-white/50 shadow hover:scale-110 transition cursor-pointer"
-                  style={{ backgroundColor: c.color }}
-                  title={c.name}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex gap-2 pt-2 border-t border-[#5C4033]">
-            <button
-              onClick={handleApplyDomEdits}
-              className="flex-1 bg-[#D2B48C] text-[#1C1613] font-black py-2.5 rounded-xl text-xs hover:bg-[#c5a378] transition cursor-pointer shadow"
-            >
-              تطبيق وحفظ التغيير
-            </button>
-            <button
-              onClick={handleDeleteSelectedElement}
-              className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-3 py-2.5 rounded-xl text-xs cursor-pointer flex items-center gap-1"
-              title="حذف هذا العنصر نهائياً"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              حذف
-            </button>
-            <button
-              onClick={() => setSelectedEl(null)}
-              className="bg-[#5C4033] text-white font-bold px-3 py-2.5 rounded-xl text-xs cursor-pointer"
-            >
-              إلغاء
-            </button>
           </div>
         </div>
       )}
@@ -1054,10 +1185,15 @@ export function LiveEditAdminBar() {
       {showAddModal && (
         <div
           id="live-edit-modal"
+          data-live-edit-ui="true"
+          onClick={() => setShowAddModal(false)}
           className="fixed inset-0 z-[10000] bg-black/70 flex items-center justify-center p-4"
           dir="rtl"
         >
-          <div className="bg-[#1C1613] text-[#F8F5EE] border-2 border-[#D2B48C] w-full max-w-lg rounded-3xl p-6 shadow-2xl space-y-5">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#1C1613] text-[#F8F5EE] border-2 border-[#D2B48C] w-full max-w-lg rounded-3xl p-6 shadow-2xl space-y-5"
+          >
             <div className="flex items-center justify-between border-b border-[#5C4033] pb-3">
               <h3 className="font-black text-base text-[#D2B48C] flex items-center gap-2">
                 <Layers className="w-5 h-5 text-[#D2B48C]" />
@@ -1081,7 +1217,7 @@ export function LiveEditAdminBar() {
                   type="text"
                   value={secTitle}
                   onChange={(e) => setSecTitle(e.target.value)}
-                  placeholder="مثال: خصومات حصرية لعملاء بيتك المميزين"
+                  placeholder="عنوان القائمة أو القسم"
                   className="w-full bg-white text-[#1C1613] border border-[#D2B48C] rounded-xl p-2.5 text-xs font-bold outline-none"
                   required
                 />
@@ -1094,7 +1230,7 @@ export function LiveEditAdminBar() {
                 <textarea
                   value={secSubtitle}
                   onChange={(e) => setSecSubtitle(e.target.value)}
-                  placeholder="مثال: استمتع بشحن مجاني لكافة المحافظات عند الشراء بأكثر من 1000 ج.م"
+                  placeholder="الوصف أو الشرح..."
                   className="w-full bg-white text-[#1C1613] border border-[#D2B48C] rounded-xl p-2.5 text-xs font-medium outline-none h-20"
                 />
               </div>
@@ -1168,6 +1304,440 @@ export function LiveEditAdminBar() {
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
+                  className="bg-[#5C4033] text-white font-bold px-4 py-3 rounded-2xl text-xs cursor-pointer"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal for direct Theme, Fonts, Background Image, Patterns & Color Customization */}
+      {showThemeModal && (
+        <div
+          id="live-edit-theme-modal"
+          data-live-edit-ui="true"
+          onClick={() => setShowThemeModal(false)}
+          className="fixed inset-0 z-[10000] bg-black/80 flex items-center justify-center p-4"
+          dir="rtl"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#1C1613] text-[#F8F5EE] border-2 border-[#D2B48C] w-full max-w-2xl rounded-3xl p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between border-b border-[#5C4033] pb-3">
+              <h3 className="font-black text-base text-[#D2B48C] flex items-center gap-2">
+                <Palette className="w-5 h-5 text-[#D2B48C]" />
+                تخصيص المظهر، الخلفيات، الخطوط، والألوان الشاملة
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowThemeModal(false)}
+                className="w-8 h-8 rounded-full bg-[#5C4033] text-white font-black text-xs grid place-items-center hover:bg-[#D2B48C] hover:text-[#1C1613] cursor-pointer"
+              >
+                X
+              </button>
+            </div>
+
+            {/* Navigation Tabs */}
+            <div className="flex items-center gap-1.5 bg-[#2A211C] p-1.5 rounded-2xl border border-[#D2B48C]/20 overflow-x-auto">
+              <button
+                type="button"
+                onClick={() => setThemeTab("hero")}
+                className={`flex-1 py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap ${
+                  themeTab === "hero"
+                    ? "bg-[#D2B48C] text-[#1C1613] shadow"
+                    : "text-stone-300 hover:text-white"
+                }`}
+              >
+                <Image className="w-3.5 h-3.5" />
+                <span>الخلفية والبنر</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setThemeTab("font")}
+                className={`flex-1 py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap ${
+                  themeTab === "font"
+                    ? "bg-[#D2B48C] text-[#1C1613] shadow"
+                    : "text-stone-300 hover:text-white"
+                }`}
+              >
+                <Type className="w-3.5 h-3.5" />
+                <span>الخطوط والطباعة</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setThemeTab("pattern")}
+                className={`flex-1 py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap ${
+                  themeTab === "pattern"
+                    ? "bg-[#D2B48C] text-[#1C1613] shadow"
+                    : "text-stone-300 hover:text-white"
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>النقوش والخلفيات</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setThemeTab("colors")}
+                className={`flex-1 py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap ${
+                  themeTab === "colors"
+                    ? "bg-[#D2B48C] text-[#1C1613] shadow"
+                    : "text-stone-300 hover:text-white"
+                }`}
+              >
+                <Palette className="w-3.5 h-3.5" />
+                <span>الألوان والأثيمة</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveThemeCustomization} className="space-y-4">
+              {/* Tab 1: Hero & Background Image */}
+              {themeTab === "hero" && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold mb-1 text-[#D2B48C]">
+                      رابط صورة خلفية البنر الرئيسي (Hero Image Background):
+                    </label>
+                    <input
+                      type="text"
+                      value={themeHeroBg}
+                      onChange={(e) => setThemeHeroBg(e.target.value)}
+                      placeholder="https://images.unsplash.com/..."
+                      className="w-full bg-white text-[#1C1613] border border-[#D2B48C] rounded-xl p-2.5 text-xs font-mono font-bold outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold mb-1 text-stone-300">
+                      اختر خلفية احترافية جاهزة بنقرة واحدة:
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {[
+                        {
+                          name: "صالون أثاث فاخر",
+                          url: "https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?w=1600&h=900&fit=crop",
+                        },
+                        {
+                          name: "فيلا مودرن راقية",
+                          url: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1600&h=900&fit=crop",
+                        },
+                        {
+                          name: "ديكور خشبي دافئ",
+                          url: "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=1600&h=900&fit=crop",
+                        },
+                        {
+                          name: "مطبخ عصري حديث",
+                          url: "https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=1600&h=900&fit=crop",
+                        },
+                        {
+                          name: "غرفة نوم كلاسيك",
+                          url: "https://images.unsplash.com/photo-1540518614846-7ede433c5172?w=1600&h=900&fit=crop",
+                        },
+                        {
+                          name: "معرض إلكترونيات",
+                          url: "https://images.unsplash.com/photo-1526738549149-8e07eca6c147?w=1600&h=900&fit=crop",
+                        },
+                      ].map((preset, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setThemeHeroBg(preset.url)}
+                          className={`p-2 rounded-xl border text-right transition cursor-pointer flex flex-col gap-1 overflow-hidden ${
+                            themeHeroBg === preset.url
+                              ? "border-[#D2B48C] bg-[#5C4033] ring-2 ring-[#D2B48C]"
+                              : "border-[#D2B48C]/20 bg-[#2A211C] hover:border-[#D2B48C]"
+                          }`}
+                        >
+                          <img
+                            src={preset.url}
+                            alt={preset.name}
+                            className="w-full h-16 object-cover rounded-lg"
+                          />
+                          <span className="text-[11px] font-bold text-white truncate">
+                            {preset.name}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold mb-1 text-stone-300">
+                      العنوان الرئيسي للبنر:
+                    </label>
+                    <input
+                      type="text"
+                      value={themeHeroTitle}
+                      onChange={(e) => setThemeHeroTitle(e.target.value)}
+                      className="w-full bg-white text-[#1C1613] border border-[#D2B48C] rounded-xl p-2.5 text-xs font-bold outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold mb-1 text-stone-300">
+                      الوصف الفرعي للبنر:
+                    </label>
+                    <textarea
+                      value={themeHeroSub}
+                      onChange={(e) => setThemeHeroSub(e.target.value)}
+                      className="w-full bg-white text-[#1C1613] border border-[#D2B48C] rounded-xl p-2.5 text-xs font-bold outline-none h-16"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold mb-1 text-stone-300">
+                      نص زر التفاعل الرئيسي:
+                    </label>
+                    <input
+                      type="text"
+                      value={themeHeroCta}
+                      onChange={(e) => setThemeHeroCta(e.target.value)}
+                      className="w-full bg-white text-[#1C1613] border border-[#D2B48C] rounded-xl p-2.5 text-xs font-bold outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 2: Fonts & Typography */}
+              {themeTab === "font" && (
+                <div className="space-y-4">
+                  <label className="block text-xs font-bold text-[#D2B48C]">
+                    اختر الخط العربي المباشر للموقع بالكامل:
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {[
+                      { id: "Cairo", name: "القاهرة (Cairo)", desc: "خط عصري أنيق ومقروء بوضوح" },
+                      { id: "Almarai", name: "المراعي (Almarai)", desc: "خط بسيط وتفاعلي حديث" },
+                      { id: "Amiri", name: "الأميري (Amiri)", desc: "خط كلاسيكي أصيل وفخم" },
+                      { id: "Changa", name: "شانجا (Changa)", desc: "خط مبتكر وعريض مميز" },
+                      { id: "Tajawal", name: "تجوال (Tajawal)", desc: "خط نظيف متوازن للمتاجر" },
+                      {
+                        id: "Readex Pro",
+                        name: "ريديكس (Readex Pro)",
+                        desc: "خط معاصر وجريء للواجهات",
+                      },
+                      {
+                        id: "IBM Plex Sans Arabic",
+                        name: "آي بي إم (IBM Plex)",
+                        desc: "خط احترافي موثوق",
+                      },
+                      {
+                        id: "El Messiri",
+                        name: "الميسيري (El Messiri)",
+                        desc: "خط زخرفي فاخر للعناوين",
+                      },
+                    ].map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setThemeFont(f.id)}
+                        className={`p-3 rounded-2xl border text-right transition cursor-pointer flex flex-col justify-between ${
+                          themeFont === f.id
+                            ? "border-[#D2B48C] bg-[#5C4033] ring-2 ring-[#D2B48C]"
+                            : "border-[#D2B48C]/20 bg-[#2A211C] hover:border-[#D2B48C]"
+                        }`}
+                      >
+                        <span className="font-black text-sm text-[#D2B48C]">{f.name}</span>
+                        <span className="text-xs text-stone-300 mt-1">{f.desc}</span>
+                        <span
+                          className="text-sm font-bold text-white mt-2 block"
+                          style={{ fontFamily: `"${f.id}", sans-serif` }}
+                        >
+                          سوق بيتك الشامل — أثاث، ديكور وأجهزة
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 3: Background Patterns */}
+              {themeTab === "pattern" && (
+                <div className="space-y-4">
+                  <label className="block text-xs font-bold text-[#D2B48C]">
+                    اختر نقش خلفية الصفحات والبطاقات بالموقع:
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                    {[
+                      { id: "none", name: "بدون نقوش (سادة)", desc: "خلفية ناصعة ومستوية" },
+                      { id: "dots", name: "نقاط دقيقة (Dots)", desc: "نقاط هادئة متناسقة" },
+                      { id: "grid", name: "شبكة هندسية (Grid)", desc: "خطوط مربعة خفيفة" },
+                      { id: "islamic", name: "زخرفة إسلامية (Islamic)", desc: "نقوش هندسية دافئة" },
+                      {
+                        id: "arabesque",
+                        name: "نقش أرابيسك (Arabesque)",
+                        desc: "خطوط مائلة فاخرة",
+                      },
+                      { id: "waves", name: "أمواج ناعمة (Waves)", desc: "حلقات انسيابية راقية" },
+                      { id: "wood", name: "ألياف خشبية (Wood)", desc: "ملمس طبيعي خشبي" },
+                    ].map((pat) => (
+                      <button
+                        key={pat.id}
+                        type="button"
+                        onClick={() => setThemePattern(pat.id)}
+                        className={`p-3 rounded-2xl border text-right transition cursor-pointer flex flex-col justify-between ${
+                          themePattern === pat.id
+                            ? "border-[#D2B48C] bg-[#5C4033] ring-2 ring-[#D2B48C]"
+                            : "border-[#D2B48C]/20 bg-[#2A211C] hover:border-[#D2B48C]"
+                        }`}
+                      >
+                        <span className="font-black text-xs text-[#D2B48C]">{pat.name}</span>
+                        <span className="text-[10px] text-stone-300 mt-1">{pat.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 4: Colors & Theme Presets */}
+              {themeTab === "colors" && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold mb-2 text-[#D2B48C]">
+                      اختر لوحة ألوان جاهزة بنقرة واحدة (Presets):
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {[
+                        {
+                          name: "بني بيتك الفاخر",
+                          primary: "#5C4033",
+                          dark: "#1C1613",
+                          accent: "#D2B48C",
+                          bg: "#F8F5EE",
+                        },
+                        {
+                          name: "ملكي أسود وذهبي",
+                          primary: "#1F2937",
+                          dark: "#111827",
+                          accent: "#F59E0B",
+                          bg: "#0B0F17",
+                        },
+                        {
+                          name: "زمردي إسلامي",
+                          primary: "#065F46",
+                          dark: "#022C22",
+                          accent: "#34D399",
+                          bg: "#ECFDF5",
+                        },
+                        {
+                          name: "كحلي ملكي",
+                          primary: "#1E3A8A",
+                          dark: "#0F172A",
+                          accent: "#60A5FA",
+                          bg: "#F8FAFC",
+                        },
+                        {
+                          name: "عنابي دافئ",
+                          primary: "#831843",
+                          dark: "#4C0519",
+                          accent: "#F472B6",
+                          bg: "#FFF1F2",
+                        },
+                        {
+                          name: "بيج كريمي هادئ",
+                          primary: "#78350F",
+                          dark: "#292524",
+                          accent: "#D97706",
+                          bg: "#FEF3C7",
+                        },
+                      ].map((preset, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            setThemePrimaryColor(preset.primary);
+                            setThemeDarkColor(preset.dark);
+                            setThemeAccentColor(preset.accent);
+                            setThemeBgColor(preset.bg);
+                          }}
+                          className="p-2.5 rounded-2xl border border-[#D2B48C]/30 bg-[#2A211C] hover:border-[#D2B48C] text-right cursor-pointer transition flex flex-col gap-1.5"
+                        >
+                          <span className="text-xs font-bold text-white">{preset.name}</span>
+                          <div className="flex items-center gap-1">
+                            <span
+                              className="w-4 h-4 rounded-full border"
+                              style={{ backgroundColor: preset.primary }}
+                            />
+                            <span
+                              className="w-4 h-4 rounded-full border"
+                              style={{ backgroundColor: preset.dark }}
+                            />
+                            <span
+                              className="w-4 h-4 rounded-full border"
+                              style={{ backgroundColor: preset.accent }}
+                            />
+                            <span
+                              className="w-4 h-4 rounded-full border"
+                              style={{ backgroundColor: preset.bg }}
+                            />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 pt-2">
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-300 mb-1">
+                        اللون الرئيسي (Brand Primary):
+                      </label>
+                      <input
+                        type="color"
+                        value={themePrimaryColor}
+                        onChange={(e) => setThemePrimaryColor(e.target.value)}
+                        className="w-full h-10 rounded-xl bg-white cursor-pointer border border-[#D2B48C] p-1"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-300 mb-1">
+                        اللون الداكن (Brand Dark):
+                      </label>
+                      <input
+                        type="color"
+                        value={themeDarkColor}
+                        onChange={(e) => setThemeDarkColor(e.target.value)}
+                        className="w-full h-10 rounded-xl bg-white cursor-pointer border border-[#D2B48C] p-1"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-300 mb-1">
+                        لون التمييز/الذهبي (Accent):
+                      </label>
+                      <input
+                        type="color"
+                        value={themeAccentColor}
+                        onChange={(e) => setThemeAccentColor(e.target.value)}
+                        className="w-full h-10 rounded-xl bg-white cursor-pointer border border-[#D2B48C] p-1"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-300 mb-1">
+                        لون الخلفية (Background):
+                      </label>
+                      <input
+                        type="color"
+                        value={themeBgColor}
+                        onChange={(e) => setThemeBgColor(e.target.value)}
+                        className="w-full h-10 rounded-xl bg-white cursor-pointer border border-[#D2B48C] p-1"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-3 border-t border-[#5C4033] flex gap-2">
+                <button
+                  type="submit"
+                  className="flex-1 bg-[#D2B48C] text-[#1C1613] font-black py-3 rounded-2xl shadow transition text-xs cursor-pointer hover:bg-[#c5a378]"
+                >
+                  تطبيق وحفظ المظهر والتصميم فوراً
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowThemeModal(false)}
                   className="bg-[#5C4033] text-white font-bold px-4 py-3 rounded-2xl text-xs cursor-pointer"
                 >
                   إلغاء

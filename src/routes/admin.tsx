@@ -461,99 +461,63 @@ function detectProductGroup(
 }
 
 const SUBCATEGORIES_MAP: Record<string, string[]> = {
-  "أجهزة إلكترونية": [
-    "هواتف وأجهزة ذكية",
-    "تابلت وايباد",
-    "سماعات وإكسسوارات",
-    "لاب توب وأجهزة كمبيوتر",
-    "شاشات وتلفزيونات",
-    "أجهزة منزلية إلكترونية",
-    "ساعات ذكية",
+  الأزياء: ["النساء", "الرجال", "الأطفال", "للجميع"],
+  النساء: [
+    "الملابس",
+    "فساتين",
+    "عبايات",
+    "بلوزات",
+    "بناطيل",
+    "تيشيرتات",
+    "ملابس رياضية",
+    "ملابس نوم",
+    "الأحذية",
+    "الحقائب",
+    "المحافظ",
+    "الإكسسوارات",
+    "المجوهرات",
+    "الساعات",
+    "النظارات",
   ],
-  "أجهزة إلكترونية وهواتف": [
-    "هواتف وأجهزة ذكية",
-    "تابلت وايباد",
-    "سماعات وإكسسوارات",
-    "لاب توب وأجهزة كمبيوتر",
-    "شاشات وتلفزيونات",
-    "أجهزة منزلية إلكترونية",
-    "ساعات ذكية",
+  الرجال: [
+    "الملابس",
+    "قمصان",
+    "تيشيرتات",
+    "بناطيل",
+    "ملابس رياضية",
+    "ملابس نوم",
+    "بدل",
+    "الأحذية",
+    "الحقائب",
+    "المحافظ",
+    "الإكسسوارات",
+    "المجوهرات",
+    "الساعات",
+    "النظارات",
   ],
-  إلكترونيات: [
-    "هواتف وأجهزة ذكية",
-    "تابلت وايباد",
-    "سماعات وإكسسوارات",
-    "لاب توب وأجهزة كمبيوتر",
-    "شاشات وتلفزيونات",
-    "أجهزة منزلية إلكترونية",
-    "ساعات ذكية",
+  الأطفال: ["الملابس", "الأحذية", "الإكسسوارات"],
+  للجميع: ["الملابس", "الأحذية", "الإكسسوارات"],
+  الإلكترونيات: [
+    "الهواتف",
+    "الأجهزة اللوحية",
+    "اللابتوبات",
+    "الشاشات",
+    "الساعات الذكية",
+    "السماعات",
+    "الكاميرات",
+    "الإكسسوارات",
   ],
-  "أثاث ومفروشات": [
-    "غرف نوم",
-    "صالون وأنتريه",
-    "سفرة وطاولات",
-    "مفروشات وسجاد",
-    "ديكورات وإضاءة",
-    "أثاث مكتبي",
-  ],
-  "أثاث وديكور": [
-    "غرف نوم",
-    "صالون وأنتريه",
-    "سفرة وطاولات",
-    "مفروشات وسجاد",
-    "ديكورات وإضاءة",
-    "أثاث مكتبي",
-  ],
-  "أزياء وموضة": [
-    "ملابس نسائية",
-    "عبايات وجلابيات",
-    "أحذية وحقائب نسائية",
-    "إكسسوارات ومجوهرات",
-    "ملابس رجالية",
-    "أحذية رجالية",
-    "ملابس وأحذية الأطفال",
-  ],
-  "قسم النساء والجمال": [
-    "فساتين وسواريه",
-    "عبايات خليجي واستقبال",
-    "ملابس منزلية ولانجيري",
-    "عناية بالبشرة ومكياج",
-    "عطور وبخور",
-    "حقائب وأحذية نسائية",
-  ],
-  "مستحضرات تجميل وعناية": [
-    "عناية بالبشرة",
-    "مكياج وأدوات التجميل",
-    "عطور وبخور",
-    "عناية بالشعر",
-    "أجهزة العناية الشخصية",
-  ],
-  "أدوات منزلية ومطبخ": [
-    "أواني ومعدات طهي",
-    "أدوات مائدة وتقديم",
-    "منتجات تنظيم وتنظيف",
-    "أجهزة مطبخ صغيرة",
-  ],
-  "أجهزة منزلية": [
-    "ثلاجات وديد فريزر",
-    "غسالات ومجففات",
-    "بوتاجازات وأوفران",
-    "تكييفات ومراوح",
-    "أجهزة مطبخ صغيرة",
-  ],
-  "عقارات وأراضي": [
-    "شقق للبيع",
-    "شقق للإيجار",
-    "فيلات ومصايف",
-    "محلات ومكاتب تجارية",
-    "أراضي للبيع",
-  ],
-  عقارات: ["شقق للبيع", "شقق للإيجار", "فيلات ومصايف", "محلات ومكاتب تجارية", "أراضي للبيع"],
-  "سيارات ومركبات": ["سيارات للبيع", "قطع غيار وإكسسوارات", "موتوسيكلات ودرجات", "إطارات وبطاريات"],
-  "سوبرماركت ومواد غذائية": ["أغذية طازجة", "مشروبات ومأكولات", "منظفات ومنتجات عناية منزلية"],
-  "أغذية ومأكولات": ["أغذية طازجة", "مشروبات ومأكولات", "حلويات ومعلبات"],
-  "كتب وأدوات مكتبية": ["روايات وكتب", "أدوات مدرسية ومكتبية", "ألعاب تعليمية"],
-  "ألعاب ومستلزمات أطفال": ["ألعاب أطفال", "عربات ومقاعد أطفال", "ملابس ومستلزمات رضع"],
+  "الأجهزة الكهربائية": ["الثلاجات", "الغسالات", "البوتاجازات", "المكيفات", "المكانس", "الشاشات"],
+  "المنزل والأثاث": ["الكنب", "الطاولات", "الأسرة", "الدواليب", "الديكور"],
+  العقارات: ["شقق", "فلل", "أراضي", "محلات", "مكاتب"],
+  السيارات: ["سيارات", "دراجات نارية", "قطع الغيار", "الإكسسوارات"],
+  "الصحة والجمال": ["العطور", "العناية بالبشرة", "العناية بالشعر", "المكياج", "الأجهزة"],
+  "الأم والطفل": ["الملابس", "عربات الأطفال", "مقاعد السيارة", "الألعاب"],
+  "السوبر ماركت": ["الأغذية", "المشروبات", "المنظفات"],
+  الكتب: ["كتب", "مجلات"],
+  الرياضة: ["الملابس", "الأحذية", "المعدات"],
+  الهدايا: ["هدايا"],
+  "الحرف اليدوية": ["حرف يدوية"],
 };
 
 function ProductEditor({
@@ -849,10 +813,14 @@ function ProductEditor({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-brand-dark/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 bg-brand-dark/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 cursor-pointer"
+    >
       <form
+        onClick={(e) => e.stopPropagation()}
         onSubmit={save}
-        className="bg-brand-bg w-full max-w-2xl rounded-t-3xl sm:rounded-3xl p-6 max-h-[95vh] overflow-y-auto space-y-4 shadow-2xl border border-brand-dark/10"
+        className="bg-card w-full max-w-2xl rounded-t-3xl sm:rounded-3xl p-6 max-h-[90vh] overflow-y-auto space-y-4 shadow-2xl border border-brand-dark/15 cursor-default"
         dir="rtl"
       >
         <div className="flex justify-between items-center border-b border-brand-dark/10 pb-3">
@@ -965,7 +933,7 @@ function ProductEditor({
               <input
                 type="number"
                 min="0"
-                placeholder="مثال: 50"
+                placeholder="50"
                 value={form.deliveryFee}
                 onChange={(e) => setForm({ ...form, deliveryFee: e.target.value })}
                 className="admin-input"
@@ -978,8 +946,7 @@ function ProductEditor({
         <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200 space-y-3">
           <div className="text-xs font-black text-amber-900 flex items-center justify-between">
             <span className="flex items-center gap-1.5">
-              <span>⚙️</span> مواصفات وديناميكية خيارات الفئة (
-              {productGroup === "clothing" && "ملابس وأزياء"}
+              <span>⚙️</span> مواصفات الفئة ({productGroup === "clothing" && "ملابس وأزياء"}
               {productGroup === "shoes" && "أحذية وموضة"}
               {productGroup === "real_estate" && "عقارات وأراضي"}
               {productGroup === "cars" && "سيارات ومركبات"}
@@ -994,23 +961,22 @@ function ProductEditor({
           {/* Universal Amazon-Style Variants & Image Mapper for ALL Product Categories */}
           <div className="bg-white p-3.5 rounded-2xl border border-amber-200 space-y-3 shadow-xs">
             <div className="text-xs font-black text-brand-dark flex items-center gap-1.5 border-b border-brand-dark/5 pb-2">
-              <span>🎨</span> الخيارات المتعددة وربط الصور بالبيانات (أسلوب أمازون - ينطبق على كافة
-              الأقسام):
+              <span>🎨</span> الخيارات المتعددة وربط الصور:
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <AdminField label="الألوان / الخامات / الموديلات المتاحة (فواصل بين الخيارات)">
+              <AdminField label="الألوان / الخامات / الموديلات">
                 <input
                   type="text"
-                  placeholder="مثال: أسود, بني, ذهبي, رمادي (أو خيار واحد)"
+                  placeholder="أسود، بني، ذهبي، رمادي"
                   value={form.colors}
                   onChange={(e) => setForm({ ...form, colors: e.target.value })}
                   className="admin-input"
                 />
               </AdminField>
-              <AdminField label="المقاسات / الأبعاد / المساحات / المواصفات المتاحة">
+              <AdminField label="المقاسات / الأبعاد / السعة">
                 <input
                   type="text"
-                  placeholder="مثال: S, M, L أو 120x180 سم أو 250 م² أو 128GB"
+                  placeholder="S, M, L, XL"
                   value={form.sizes}
                   onChange={(e) => setForm({ ...form, sizes: e.target.value })}
                   className="admin-input"
@@ -1174,7 +1140,7 @@ function ProductEditor({
                 <AdminField label="المساحة (متر مربع m²)">
                   <input
                     type="text"
-                    placeholder="مثال: 180 م²"
+                    placeholder="180 م²"
                     value={form.area_sqm}
                     onChange={(e) => setForm({ ...form, area_sqm: e.target.value })}
                     className="admin-input"
@@ -1184,7 +1150,7 @@ function ProductEditor({
                 <AdminField label="عدد الغرف">
                   <input
                     type="number"
-                    placeholder="مثال: 3"
+                    placeholder="3"
                     value={form.bedrooms}
                     onChange={(e) => setForm({ ...form, bedrooms: e.target.value })}
                     className="admin-input"
@@ -1194,7 +1160,7 @@ function ProductEditor({
                 <AdminField label="عدد الحمامات">
                   <input
                     type="number"
-                    placeholder="مثال: 2"
+                    placeholder="2"
                     value={form.bathrooms}
                     onChange={(e) => setForm({ ...form, bathrooms: e.target.value })}
                     className="admin-input"
@@ -1206,7 +1172,7 @@ function ProductEditor({
                 <AdminField label="الدور / الطابق">
                   <input
                     type="text"
-                    placeholder="مثال: الطابق الثالث"
+                    placeholder="الطابق الثالث"
                     value={form.floor}
                     onChange={(e) => setForm({ ...form, floor: e.target.value })}
                     className="admin-input"
@@ -1235,7 +1201,7 @@ function ProductEditor({
                 <AdminField label="الماركة / الشركة">
                   <input
                     type="text"
-                    placeholder="مثال: تويوتا, مرسيدس..."
+                    placeholder="تويوتا، مرسيدس..."
                     value={form.car_brand}
                     onChange={(e) => setForm({ ...form, car_brand: e.target.value })}
                     className="admin-input"
@@ -1245,7 +1211,7 @@ function ProductEditor({
                 <AdminField label="الموديل">
                   <input
                     type="text"
-                    placeholder="مثال: كورولا, C200..."
+                    placeholder="كورولا، C200..."
                     value={form.car_model}
                     onChange={(e) => setForm({ ...form, car_model: e.target.value })}
                     className="admin-input"
@@ -1255,7 +1221,7 @@ function ProductEditor({
                 <AdminField label="سنة الصنع">
                   <input
                     type="text"
-                    placeholder="مثال: 2024"
+                    placeholder="2024"
                     value={form.car_year}
                     onChange={(e) => setForm({ ...form, car_year: e.target.value })}
                     className="admin-input"
@@ -1267,7 +1233,7 @@ function ProductEditor({
                 <AdminField label="عدد الكيلومترات (كم)">
                   <input
                     type="text"
-                    placeholder="مثال: 50,000 كم أو 0 كم (زيرو)"
+                    placeholder="50,000 كم"
                     value={form.car_mileage}
                     onChange={(e) => setForm({ ...form, car_mileage: e.target.value })}
                     className="admin-input"
@@ -1296,7 +1262,7 @@ function ProductEditor({
               <AdminField label="الوزن / الحجم">
                 <input
                   type="text"
-                  placeholder="مثال: 1, 500, 250..."
+                  placeholder="500, 1000..."
                   value={form.capacity_weight}
                   onChange={(e) => setForm({ ...form, capacity_weight: e.target.value })}
                   className="admin-input"
@@ -1322,7 +1288,7 @@ function ProductEditor({
               <AdminField label="تاريخ انتهاء الصلاحية">
                 <input
                   type="text"
-                  placeholder="مثال: 12/2026"
+                  placeholder="12/2026"
                   value={form.expiry_date}
                   onChange={(e) => setForm({ ...form, expiry_date: e.target.value })}
                   className="admin-input"
@@ -1337,7 +1303,7 @@ function ProductEditor({
               <AdminField label="الأبعاد (الطول × العرض × الارتفاع سم)">
                 <input
                   type="text"
-                  placeholder="مثال: 200 × 160 × 80 سم"
+                  placeholder="200 × 160 × 80 سم"
                   value={form.dimensions}
                   onChange={(e) => setForm({ ...form, dimensions: e.target.value })}
                   className="admin-input"
@@ -1347,7 +1313,7 @@ function ProductEditor({
               <AdminField label="نوع الخشب / الخامة المصنوع منها">
                 <input
                   type="text"
-                  placeholder="مثال: خشب زان أحمر, MDF, استيل..."
+                  placeholder="خشب زان أحمر, MDF..."
                   value={form.material}
                   onChange={(e) => setForm({ ...form, material: e.target.value })}
                   className="admin-input"
@@ -1363,7 +1329,7 @@ function ProductEditor({
                 <AdminField label="الماركة / العلامة التجارية">
                   <input
                     type="text"
-                    placeholder="مثال: سامسونج, أبل, توشيبا..."
+                    placeholder="سامسونج, أبل..."
                     value={form.electronics_brand}
                     onChange={(e) => setForm({ ...form, electronics_brand: e.target.value })}
                     className="admin-input"
@@ -1373,7 +1339,7 @@ function ProductEditor({
                 <AdminField label="الموديل / الرقم الفني">
                   <input
                     type="text"
-                    placeholder="مثال: Galaxy S24, M3..."
+                    placeholder="Galaxy S24, M3..."
                     value={form.electronics_model}
                     onChange={(e) => setForm({ ...form, electronics_model: e.target.value })}
                     className="admin-input"
@@ -1384,7 +1350,7 @@ function ProductEditor({
               <AdminField label="المواصفات الفنية الرئيسية">
                 <input
                   type="text"
-                  placeholder="مثال: 256 جيجا ذاكرة, 12 جيجا رام, شاشة OLED..."
+                  placeholder="256 جيجا ذاكرة, 12 جيجا رام..."
                   value={form.electronics_specs}
                   onChange={(e) => setForm({ ...form, electronics_specs: e.target.value })}
                   className="admin-input"
@@ -1682,6 +1648,29 @@ function CategoriesAdmin({ isSeller, sellerId }: { isSeller?: boolean; sellerId?
     setCatRequests(MarketplaceStore.getCategoryRequests());
   };
 
+  const handleMergeRequest = (reqId: string, reqCategoryName: string) => {
+    if (allCategories.length === 0) return;
+    const catOptions = allCategories
+      .map((c, i) => `${i + 1}. ${c.name}${c.parentId ? " (فرعي)" : " (رئيسي)"}`)
+      .join("\n");
+    const choiceStr = prompt(
+      `اختر رقم القسم المراد دمج طلب "${reqCategoryName}" فيه:\n\n${catOptions}`,
+      "1",
+    );
+    if (!choiceStr) return;
+    const idx = parseInt(choiceStr, 10) - 1;
+    const targetCat = allCategories[idx];
+    if (!targetCat) {
+      toast.error("اختيار غير صائب");
+      return;
+    }
+
+    MarketplaceStore.updateCategoryRequestStatus(reqId, "merged", targetCat.name);
+    toast.success(`تم دمج طلب القسم "${reqCategoryName}" بنجاح مع قسم "${targetCat.name}"`);
+    setCatRequests(MarketplaceStore.getCategoryRequests());
+    load();
+  };
+
   const rename = (c: CategoryNode) => {
     const val = prompt("اسم القسم الجديد", c.name);
     if (!val || val.trim() === c.name) return;
@@ -1753,8 +1742,8 @@ function CategoriesAdmin({ isSeller, sellerId }: { isSeller?: boolean; sellerId?
                 onChange={(e) => setName(e.target.value)}
                 placeholder={
                   targetParentId === "root"
-                    ? "مثال: أثاث وديكور، إلكترونيات، مستلزمات طبية..."
-                    : "مثال: تيشرتات أوفر سايز، غرف نوم مودرن، شواحن سريعة..."
+                    ? "أثاث وديكور، إلكترونيات، مستلزمات طبية..."
+                    : "تيشرتات، غرف نوم، شواحن سريعة..."
                 }
                 className="w-full bg-background border border-brand-dark/10 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:border-brand-accent"
               />
@@ -1809,24 +1798,34 @@ function CategoriesAdmin({ isSeller, sellerId }: { isSeller?: boolean; sellerId?
                     className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                       req.status === "approved"
                         ? "bg-emerald-100 text-emerald-800"
-                        : req.status === "rejected"
-                          ? "bg-rose-100 text-rose-800"
-                          : "bg-amber-100 text-amber-800"
+                        : req.status === "merged"
+                          ? "bg-blue-100 text-blue-800"
+                          : req.status === "rejected"
+                            ? "bg-rose-100 text-rose-800"
+                            : "bg-amber-100 text-amber-800"
                     }`}
                   >
                     {req.status === "approved"
                       ? "معتمد"
-                      : req.status === "rejected"
-                        ? "مرفوض"
-                        : "قيد المراجعة"}
+                      : req.status === "merged"
+                        ? `مدموج مع: ${req.mergedIntoCategoryName || "قسم آخر"}`
+                        : req.status === "rejected"
+                          ? "مرفوض"
+                          : "قيد المراجعة"}
                   </span>
                   {!isSeller && req.status === "pending" && (
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 flex-wrap">
                       <button
                         onClick={() => handleApproveRequest(req.id, req.categoryName)}
                         className="bg-emerald-600 text-white font-bold px-2.5 py-1 rounded-lg hover:bg-emerald-700 text-[11px] cursor-pointer"
                       >
                         قبول وإضافة
+                      </button>
+                      <button
+                        onClick={() => handleMergeRequest(req.id, req.categoryName)}
+                        className="bg-blue-600 text-white font-bold px-2.5 py-1 rounded-lg hover:bg-blue-700 text-[11px] cursor-pointer"
+                      >
+                        دمج مع فرع موجود
                       </button>
                       <button
                         onClick={() => handleRejectRequest(req.id)}
@@ -2334,7 +2333,7 @@ function SettingsAdmin() {
                   type="text"
                   value={themeConf.headerAnnouncement ?? ""}
                   onChange={(e) => updTheme("headerAnnouncement", e.target.value)}
-                  placeholder="مثال: شحن مجاني بمناسبة العام الجديد!"
+                  placeholder="شحن مجاني لكافة المحافظات"
                   className="set-input"
                 />
               </SetField>
@@ -2893,7 +2892,7 @@ function SettingsAdmin() {
                 })
               }
               className="set-input text-xs"
-              placeholder="مثال: فودافون كاش, إنستا باي, تحويل بنكي"
+              placeholder="فودافون كاش، إنستا باي، تحويل بنكي"
             />
           </SetField>
 

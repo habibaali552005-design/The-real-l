@@ -247,7 +247,7 @@ export function SellerGuidePage() {
                     required
                     value={newTitle}
                     onChange={(e) => setNewTitle(e.target.value)}
-                    placeholder="مثال: كيفية ضبط تكلفة الشحن لكل محافظة..."
+                    placeholder="عنوان الشرح أو الدليل..."
                     className="w-full text-xs bg-white border border-brand-dark/15 rounded-xl p-3 outline-none focus:border-brand-primary"
                   />
                 </div>

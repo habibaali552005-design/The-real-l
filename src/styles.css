@@ -46,50 +46,50 @@
   --radius: 0.875rem;
 
   /* Elegant Beige, Brown & Black Palette */
-  --brand-dark: #1C1613; /* Deep Ebony Black */
-  --brand-primary: #5C4033; /* Rich Mahogany Brown */
-  --brand-accent: #D2B48C; /* Warm Golden Beige */
-  --brand-bg: #F8F5EE; /* Classic Cream Beige Background */
+  --brand-dark: #1c1613; /* Deep Ebony Black */
+  --brand-primary: #5c4033; /* Rich Mahogany Brown */
+  --brand-accent: #d2b48c; /* Warm Golden Beige */
+  --brand-bg: #f8f5ee; /* Classic Cream Beige Background */
 
-  --background: #F8F5EE;
-  --foreground: #1C1613;
-  --card: #FFFFFF;
-  --card-foreground: #1C1613;
-  --popover: #FFFFFF;
-  --popover-foreground: #1C1613;
-  --primary: #1C1613;
-  --primary-foreground: #F8F5EE;
-  --secondary: #EFE8DA;
-  --secondary-foreground: #1C1613;
-  --muted: #EFE8DA;
-  --muted-foreground: #6B5E55;
-  --accent: #D2B48C;
-  --accent-foreground: #1C1613;
-  --destructive: #DC2626;
-  --destructive-foreground: #FFFFFF;
+  --background: #f8f5ee;
+  --foreground: #1c1613;
+  --card: #ffffff;
+  --card-foreground: #1c1613;
+  --popover: #ffffff;
+  --popover-foreground: #1c1613;
+  --primary: #1c1613;
+  --primary-foreground: #f8f5ee;
+  --secondary: #efe8da;
+  --secondary-foreground: #1c1613;
+  --muted: #efe8da;
+  --muted-foreground: #6b5e55;
+  --accent: #d2b48c;
+  --accent-foreground: #1c1613;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
   --border: rgba(212, 196, 176, 0.5);
   --input: rgba(212, 196, 176, 0.5);
-  --ring: #D2B48C;
+  --ring: #d2b48c;
 }
 
 .dark {
-  --background: #1C1613;
-  --foreground: #F8F5EE;
-  --card: #2B231F;
-  --card-foreground: #F8F5EE;
-  --popover: #2B231F;
-  --popover-foreground: #F8F5EE;
-  --primary: #D2B48C;
-  --primary-foreground: #1C1613;
-  --secondary: #3A302B;
-  --secondary-foreground: #F8F5EE;
-  --muted: #3A302B;
-  --muted-foreground: #A89C92;
-  --accent: #D2B48C;
-  --accent-foreground: #1C1613;
+  --background: #1c1613;
+  --foreground: #f8f5ee;
+  --card: #2b231f;
+  --card-foreground: #f8f5ee;
+  --popover: #2b231f;
+  --popover-foreground: #f8f5ee;
+  --primary: #d2b48c;
+  --primary-foreground: #1c1613;
+  --secondary: #3a302b;
+  --secondary-foreground: #f8f5ee;
+  --muted: #3a302b;
+  --muted-foreground: #a89c92;
+  --accent: #d2b48c;
+  --accent-foreground: #1c1613;
   --border: rgba(255, 255, 255, 0.12);
   --input: rgba(255, 255, 255, 0.15);
-  --ring: #D2B48C;
+  --ring: #d2b48c;
 }
 
 @layer base {
@@ -112,5 +112,64 @@
   }
   .no-scrollbar {
     scrollbar-width: none;
+  }
+
+  /* Standardized inputs, dropdown selects & responsive table wrappers */
+  .input {
+    width: 100%;
+    background-color: var(--card);
+    color: var(--foreground);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    padding: 0.625rem 0.875rem;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    outline: none;
+    transition: all 0.2s ease;
+  }
+  .input:focus {
+    border-color: var(--brand-accent);
+    box-shadow: 0 0 0 2px rgba(210, 180, 140, 0.3);
+  }
+
+  select.input,
+  select {
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23D2B48C' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: left 0.75rem center;
+    background-size: 1rem;
+    padding-left: 2.25rem !important;
+  }
+
+  .table-wrapper {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    border-radius: 1.25rem;
+    border: 1px solid var(--border);
+    background-color: var(--card);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  }
+
+  .table-wrapper table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: right;
+    font-size: 0.75rem;
+  }
+
+  .table-wrapper th {
+    background-color: var(--brand-dark);
+    color: var(--brand-accent);
+    font-weight: 800;
+    padding: 0.75rem 1rem;
+    white-space: nowrap;
+  }
+
+  .table-wrapper td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
   }
 }

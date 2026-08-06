@@ -112,9 +112,13 @@ export function DirectMessagingModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-brand-dark/60 backdrop-blur-xs z-50 grid place-items-center p-3 md:p-6">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 bg-brand-dark/60 backdrop-blur-xs z-50 grid place-items-center p-3 md:p-6 cursor-pointer"
+    >
       <div
-        className="bg-card w-full max-w-4xl h-[85vh] rounded-3xl shadow-2xl border border-brand-dark/15 flex flex-col md:flex-row overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+        className="bg-card w-full max-w-4xl h-[85vh] rounded-3xl shadow-2xl border border-brand-dark/15 flex flex-col md:flex-row overflow-hidden cursor-default relative"
         dir="rtl"
       >
         {/* Sidebar: Conversations List */}
@@ -175,11 +179,19 @@ export function DirectMessagingModal({
         </div>
 
         {/* Chat Main Window */}
-        <div className="flex-1 flex flex-col h-full bg-card min-w-0">
+        <div className="flex-1 flex flex-col h-full bg-card min-w-0 relative">
+          <button
+            onClick={onClose}
+            className="absolute top-3 left-3 z-50 w-8 h-8 rounded-full bg-secondary hover:bg-brand-dark hover:text-white text-brand-dark transition cursor-pointer flex items-center justify-center border border-brand-dark/15 shadow-sm"
+            title="إغلاق"
+          >
+            <X className="w-4 h-4" />
+          </button>
+
           {activeConv ? (
             <>
               {/* Chat Header */}
-              <div className="p-4 border-b border-brand-dark/10 bg-white flex items-center justify-between shadow-2xs">
+              <div className="p-4 border-b border-brand-dark/10 bg-white flex items-center justify-between shadow-2xs pl-12">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-2xl bg-brand-primary/10 border border-brand-primary/20 grid place-items-center text-brand-primary">
                     <Store className="w-5 h-5" />

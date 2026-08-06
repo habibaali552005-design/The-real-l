@@ -17,6 +17,7 @@ import {
   ArrowRight,
   Star,
   Layers,
+  X,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { ProductQuickViewModal } from "@/components/ProductQuickViewModal";
@@ -217,6 +218,8 @@ export function WomenLoungePage() {
     if (selectedSubcat !== "الكل") {
       const matchCat =
         p.category?.toLowerCase().includes(selectedSubcat.toLowerCase()) ||
+        p.sub_category?.toLowerCase().includes(selectedSubcat.toLowerCase()) ||
+        p.main_category?.toLowerCase().includes(selectedSubcat.toLowerCase()) ||
         p.name.toLowerCase().includes(selectedSubcat.toLowerCase());
       if (!matchCat) return false;
     }
@@ -374,6 +377,8 @@ export function WomenLoungePage() {
                   <img
                     src={
                       p.image_url ||
+                      (p.images && p.images[0]) ||
+                      MarketplaceStore.getProductMetadata(p.id).images?.[0]?.url ||
                       "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=600&q=80"
                     }
                     alt={p.name}
@@ -433,21 +438,27 @@ export function WomenLoungePage() {
         {/* Super Admin Women Publishing Rules Modal */}
         {showRulesAdminModal && (
           <div
-            className="fixed inset-0 z-50 bg-brand-dark/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn"
+            onClick={() => setShowRulesAdminModal(false)}
+            className="fixed inset-0 z-50 bg-brand-dark/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-fadeIn cursor-pointer"
             dir="rtl"
           >
-            <div className="bg-card w-full max-w-2xl rounded-3xl p-6 md:p-8 border border-pink-200 shadow-2xl space-y-6 max-h-[85vh] overflow-y-auto">
-              <div className="flex items-center justify-between border-b border-pink-200 pb-4">
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="bg-card w-full max-w-2xl rounded-3xl p-5 sm:p-8 border border-brand-dark/15 shadow-2xl space-y-6 max-h-[85vh] overflow-y-auto cursor-default relative"
+            >
+              <button
+                onClick={() => setShowRulesAdminModal(false)}
+                className="absolute top-4 left-4 z-50 w-9 h-9 rounded-full bg-secondary hover:bg-brand-dark hover:text-white text-brand-dark font-black text-xs grid place-items-center cursor-pointer transition border border-brand-dark/15 shadow-md"
+                title="إغلاق"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="flex items-center justify-between border-b border-brand-dark/10 pb-4 pl-12">
                 <h3 className="font-black text-lg text-brand-dark flex items-center gap-2">
-                  <ShieldCheck className="w-6 h-6 text-pink-600" />
+                  <ShieldCheck className="w-6 h-6 text-brand-primary" />
                   إدارة وقواعد نشر البائعين لقسم النساء
                 </h3>
-                <button
-                  onClick={() => setShowRulesAdminModal(false)}
-                  className="w-8 h-8 rounded-full bg-secondary text-brand-dark font-black text-xs grid place-items-center hover:bg-brand-dark/10 cursor-pointer"
-                >
-                  ×
-                </button>
               </div>
 
               {/* Add New Rule Form */}
@@ -464,7 +475,7 @@ export function WomenLoungePage() {
                     required
                     value={newRuleTitle}
                     onChange={(e) => setNewRuleTitle(e.target.value)}
-                    placeholder="عنوان الشرط (مثال: عدم استخدام صور خادشة)..."
+                    placeholder="عنوان الشرط والبند..."
                     className="w-full text-xs bg-white border border-pink-200 rounded-xl px-3.5 py-2.5 outline-none focus:border-pink-500"
                   />
                   <textarea

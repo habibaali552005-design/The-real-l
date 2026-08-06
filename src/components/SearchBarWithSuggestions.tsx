@@ -25,7 +25,7 @@ export function SearchBarWithSuggestions({
   products,
   initialValue = "",
   onSearchSubmit,
-  placeholder = "ابحث عن أي منتج باسمه (مثال: طقم انتريه، ثلاجة، ركنة...)",
+  placeholder = "ابحث عن أي منتج، ماركة، أو قسم...",
   className = "",
   isHeader = false,
 }: SearchBarWithSuggestionsProps) {

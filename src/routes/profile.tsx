@@ -615,7 +615,7 @@ export function UserProfilePage() {
                   type="text"
                   value={buildingFloor}
                   onChange={(e) => setBuildingFloor(e.target.value)}
-                  placeholder="مثال: الدور الثالث - شقة 12"
+                  placeholder="الدور الثالث - شقة 12"
                   className="w-full text-xs bg-white border border-brand-dark/15 rounded-2xl px-4 py-3 outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20"
                 />
               </div>
@@ -629,7 +629,7 @@ export function UserProfilePage() {
                   type="text"
                   value={landmark}
                   onChange={(e) => setLandmark(e.target.value)}
-                  placeholder="مثال: بجوار مسجد التوحيد، بجانب صيدلية مصر..."
+                  placeholder="بجوار مسجد التوحيد، بجانب صيدلية مصر..."
                   className="w-full text-xs bg-white border border-brand-dark/15 rounded-2xl px-4 py-3 outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20"
                 />
               </div>
@@ -645,7 +645,7 @@ export function UserProfilePage() {
                   type="text"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="مثال: الاتصال قبل التسليم بنصف ساعة..."
+                  placeholder="الاتصال قبل التسليم بنصف ساعة..."
                   className="w-full text-xs bg-white border border-brand-dark/15 rounded-2xl px-4 py-3 outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20"
                 />
               </div>
@@ -658,7 +658,7 @@ export function UserProfilePage() {
                   type="text"
                   value={mapLocation}
                   onChange={(e) => setMapLocation(e.target.value)}
-                  placeholder="مثال: https://maps.google.com/?q=30.0444,31.2357"
+                  placeholder="https://maps.google.com/?q=30.0444,31.2357"
                   dir="ltr"
                   className="w-full text-xs bg-white border border-brand-dark/15 rounded-2xl px-4 py-3 outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20"
                 />
@@ -679,8 +679,14 @@ export function UserProfilePage() {
 
         {/* BECOME A SELLER TERMS & CONDITIONS MODAL */}
         {showTermsModal && (
-          <div className="fixed inset-0 z-50 bg-brand-dark/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
-            <div className="bg-card w-full max-w-2xl rounded-3xl p-6 md:p-8 border border-brand-dark/10 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
+          <div
+            onClick={() => setShowTermsModal(false)}
+            className="fixed inset-0 z-50 bg-brand-dark/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-fadeIn cursor-pointer"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="bg-card w-full max-w-2xl rounded-3xl p-5 sm:p-8 border border-brand-dark/10 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto cursor-default"
+            >
               <div className="flex items-center justify-between border-b border-brand-dark/10 pb-4">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 grid place-items-center font-bold">
@@ -865,8 +871,14 @@ export function UserProfilePage() {
         )}
         {/* WHY GENDER MODAL */}
         {showGenderWhyModal && (
-          <div className="fixed inset-0 bg-brand-dark/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-            <div className="bg-card border border-brand-dark/15 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
+          <div
+            onClick={() => setShowGenderWhyModal(false)}
+            className="fixed inset-0 bg-brand-dark/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 cursor-pointer"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="bg-card border border-brand-dark/15 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 cursor-default"
+            >
               <div className="flex items-center justify-between border-b border-brand-dark/10 pb-3">
                 <h3 className="font-extrabold text-sm text-brand-dark flex items-center gap-2">
                   🌸 لماذا نطلب تحديد الجنس؟

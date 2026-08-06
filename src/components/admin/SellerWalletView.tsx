@@ -590,7 +590,7 @@ export function SellerWalletView({ sellerId, isSuperAdmin }: SellerWalletViewPro
                   <input
                     type="number"
                     required
-                    placeholder="مثال: 1500"
+                    placeholder="المبلغ بالجنيه"
                     value={payAmount}
                     onChange={(e) => setPayAmount(e.target.value)}
                     className="w-full text-xs bg-brand-bg border border-brand-dark/10 rounded-xl px-3 py-2.5 focus:outline-none"
@@ -824,7 +824,7 @@ export function SellerWalletView({ sellerId, isSuperAdmin }: SellerWalletViewPro
                     </label>
                     <input
                       type="number"
-                      placeholder="مثال: 3000"
+                      placeholder="المبلغ المطلوب سحبه"
                       value={withdrawAmount}
                       onChange={(e) => setWithdrawAmount(e.target.value)}
                       className="w-full text-xs bg-brand-bg border border-brand-dark/10 rounded-xl px-3 py-2.5 focus:outline-none"

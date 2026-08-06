@@ -82,9 +82,13 @@ export function NotificationCenterModal({ isOpen, onClose }: NotificationCenterP
   };
 
   return (
-    <div className="fixed inset-0 bg-brand-dark/50 backdrop-blur-xs z-50 flex justify-end transition-opacity">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 bg-brand-dark/50 backdrop-blur-xs z-50 flex justify-end transition-opacity cursor-pointer"
+    >
       <div
-        className="bg-card w-full max-w-md h-full shadow-2xl border-r border-brand-dark/10 flex flex-col justify-between animate-in slide-in-from-left duration-200"
+        onClick={(e) => e.stopPropagation()}
+        className="bg-card w-full max-w-md h-full shadow-2xl border-r border-brand-dark/10 flex flex-col justify-between animate-in slide-in-from-left duration-200 cursor-default"
         dir="rtl"
       >
         {/* Header */}

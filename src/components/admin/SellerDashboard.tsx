@@ -661,7 +661,7 @@ export function SellerDashboard({ sellerId, products }: SellerDashboardProps) {
                     type="text"
                     value={commRegister}
                     onChange={(e) => setCommRegister(e.target.value)}
-                    placeholder="مثال: 123456"
+                    placeholder="123456"
                     className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-4 py-3 outline-none focus:border-brand-primary"
                   />
                 </div>
@@ -674,7 +674,7 @@ export function SellerDashboard({ sellerId, products }: SellerDashboardProps) {
                     type="text"
                     value={taxCard}
                     onChange={(e) => setTaxCard(e.target.value)}
-                    placeholder="مثال: 987-654-321"
+                    placeholder="987-654-321"
                     className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl px-4 py-3 outline-none focus:border-brand-primary"
                   />
                 </div>
@@ -757,7 +757,7 @@ export function SellerDashboard({ sellerId, products }: SellerDashboardProps) {
                 <textarea
                   rows={3}
                   required
-                  placeholder="اكتب شرحاً موجزاً عن التصنيف المطلوب أو طريقة الدفع المرغوبة..."
+                  placeholder="تفاصيل الطلب..."
                   value={reqDetails}
                   onChange={(e) => setReqDetails(e.target.value)}
                   className="w-full text-xs bg-card border border-brand-dark/10 rounded-xl p-3 outline-none"

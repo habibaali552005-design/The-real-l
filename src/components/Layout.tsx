@@ -521,29 +521,34 @@ export function SiteHeader() {
       {/* Governorate Selection Modal */}
       {govModalOpen && (
         <div
-          className="fixed inset-0 z-50 bg-brand-dark/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn"
+          onClick={() => setGovModalOpen(false)}
+          className="fixed inset-0 z-50 bg-brand-dark/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-fadeIn cursor-pointer"
           dir="rtl"
         >
-          <div className="bg-card w-full max-w-lg rounded-3xl p-6 border border-brand-dark/10 shadow-2xl space-y-5">
-            <div className="flex items-center justify-between border-b border-brand-dark/10 pb-3">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-card w-full max-w-lg rounded-3xl p-5 sm:p-6 border border-brand-dark/15 shadow-2xl space-y-4 max-h-[85vh] flex flex-col cursor-default"
+          >
+            <div className="flex items-center justify-between border-b border-brand-dark/10 pb-3 shrink-0">
               <h3 className="font-black text-base text-brand-dark flex items-center gap-2">
                 <MapPin className="w-5 h-5 text-brand-primary" />
                 اختر المحافظة لتوصيل المنتجات
               </h3>
               <button
                 onClick={() => setGovModalOpen(false)}
-                className="w-8 h-8 rounded-full bg-secondary text-brand-dark font-black text-xs grid place-items-center hover:bg-brand-dark/10 cursor-pointer"
+                className="w-9 h-9 rounded-full bg-secondary hover:bg-destructive/15 text-brand-dark hover:text-destructive font-black text-xs grid place-items-center cursor-pointer transition border border-brand-dark/10"
+                title="إغلاق (أو اضغط خارج النافذة)"
               >
-                ×
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <p className="text-xs text-muted-foreground leading-relaxed">
+            <p className="text-xs text-muted-foreground leading-relaxed shrink-0">
               عند اختيار محافظتك، ستعرض المنصة تلقائياً المنتجات القابلة للتوصيل والشحن إلى محافظتك
               فقط.
             </p>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[50vh] overflow-y-auto p-1">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 overflow-y-auto p-1 grow">
               {EGYPT_GOVERNORATES.map((g) => {
                 const isSel = selectedGov === g;
                 return (
@@ -552,8 +557,8 @@ export function SiteHeader() {
                     onClick={() => handleSelectGov(g)}
                     className={`p-3 rounded-2xl text-xs font-bold text-center border transition cursor-pointer ${
                       isSel
-                        ? "bg-brand-dark text-white border-brand-accent shadow-md font-black"
-                        : "bg-white text-brand-dark border-brand-dark/10 hover:border-brand-accent hover:bg-amber-50/50"
+                        ? "bg-brand-dark text-brand-accent border-brand-accent shadow-md font-black"
+                        : "bg-background text-foreground border-brand-dark/10 hover:border-brand-accent hover:bg-brand-primary/10"
                     }`}
                   >
                     {g}
